@@ -1,0 +1,17 @@
+{
+  "name": "ton-wallet (DEV)",
+  "short_name": "ton-wallet",
+  "description": "Некастодиальный кошелёк TON. DEV-сборка, только testnet.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

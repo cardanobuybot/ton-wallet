@@ -1,4 +1,3 @@
-import type { Address } from '@ton/core';
 import { WalletContractV5R1 } from '@ton/ton';
 import type { KeyPair } from '@ton/crypto';
 

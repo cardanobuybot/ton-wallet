@@ -37,6 +37,11 @@ export interface CreateTransferParams {
 export interface SignedTransfer {
   /** Внешнее сообщение, готовое к POST /send-boc (base64 BOC) */
   bocBase64: string;
+  /** Тело external отдельно — для toncenter estimateFee */
+  bodyBocBase64: string;
+  /** stateInit (только при деплое, seqno=0) — для estimateFee */
+  initCodeBocBase64?: string;
+  initDataBocBase64?: string;
   /** unix-время истечения */
   validUntil: number;
 }
@@ -72,11 +77,22 @@ export function createTransfer(params: CreateTransferParams): SignedTransfer {
     ],
   });
 
+  const deploy = params.seqno === 0;
   const message = external({
     to: wallet.address,
-    init: params.seqno === 0 ? wallet.init : undefined,
+    init: deploy ? wallet.init : undefined,
     body,
   });
   const bocBase64 = beginCell().store(storeMessage(message)).endCell().toBoc().toString('base64');
-  return { bocBase64, validUntil };
+  return {
+    bocBase64,
+    bodyBocBase64: body.toBoc().toString('base64'),
+    ...(deploy
+      ? {
+          initCodeBocBase64: wallet.init.code.toBoc().toString('base64'),
+          initDataBocBase64: wallet.init.data.toBoc().toString('base64'),
+        }
+      : {}),
+    validUntil,
+  };
 }

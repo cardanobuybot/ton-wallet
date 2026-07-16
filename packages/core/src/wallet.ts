@@ -24,13 +24,13 @@ export interface WalletAddress {
   nonBounceable: string;
 }
 
-type AddressBuilder = (publicKey: Buffer, network: Network) => Address;
+type ContractBuilder = (publicKey: Buffer, network: Network) => WalletContractV5R1;
 
 /**
  * Registry версий контрактов: новые кошельки — только v5r1,
  * но импорт v4r2/v3r2 добавится сюда же без изменения API.
  */
-const ADDRESS_BUILDERS: Record<WalletVersion, AddressBuilder> = {
+const CONTRACT_BUILDERS: Record<WalletVersion, ContractBuilder> = {
   v5r1: (publicKey, network) =>
     WalletContractV5R1.create({
       publicKey,
@@ -40,14 +40,21 @@ const ADDRESS_BUILDERS: Record<WalletVersion, AddressBuilder> = {
         networkGlobalId: NETWORK_GLOBAL_ID[network],
         context: { walletVersion: 'v5r1', workchain: 0, subwalletNumber: 0 },
       },
-    }).address,
+    }),
 };
+
+export function getWalletContract(
+  keyPair: Pick<KeyPair, 'publicKey'>,
+  options: GetWalletAddressOptions,
+): WalletContractV5R1 {
+  return CONTRACT_BUILDERS[options.version](keyPair.publicKey, options.network);
+}
 
 export function getWalletAddress(
   keyPair: Pick<KeyPair, 'publicKey'>,
   options: GetWalletAddressOptions,
 ): WalletAddress {
-  const address = ADDRESS_BUILDERS[options.version](keyPair.publicKey, options.network);
+  const address = getWalletContract(keyPair, options).address;
   const testOnly = options.network === 'testnet';
   return {
     raw: address.toRawString(),

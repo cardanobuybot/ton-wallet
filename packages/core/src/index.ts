@@ -7,8 +7,24 @@ export {
 } from './mnemonic.ts';
 export {
   getWalletAddress,
+  getWalletContract,
   type GetWalletAddressOptions,
   type Network,
   type WalletAddress,
   type WalletVersion,
 } from './wallet.ts';
+export { toNano, fromNano, parseTonAmount, formatTonAmount } from './money.ts';
+export { parseRecipientAddress, formatAddress, type ParsedRecipient } from './address.ts';
+export {
+  createTransfer,
+  resolveBounce,
+  TRANSFER_TTL_SECONDS,
+  type CreateTransferParams,
+  type SignedTransfer,
+} from './transfer.ts';
+export {
+  encryptMnemonic,
+  decryptMnemonic,
+  KDF_ITERATIONS,
+  type KeystoreEnvelope,
+} from './keystore.ts';

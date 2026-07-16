@@ -35,7 +35,7 @@ async function toncenter(method: string, payload?: Record<string, unknown>): Pro
       'content-type': 'application/json',
       ...(toncenterApiKey ? { 'x-api-key': toncenterApiKey } : {}),
     },
-    body: payload ? JSON.stringify(payload) : undefined,
+    ...(payload ? { body: JSON.stringify(payload) } : {}),
     signal: AbortSignal.timeout(toncenterTimeoutMs),
   });
   const data = (await response.json()) as { ok: boolean; result?: unknown; error?: string };

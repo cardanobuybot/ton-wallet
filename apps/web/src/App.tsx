@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  buildSimulationReport,
   createTransfer,
   decryptMnemonic,
   encryptMnemonic,
@@ -11,9 +12,11 @@ import {
   parseTonAmount,
   resolveBounce,
   validateMnemonic,
+  type Severity,
+  type SimulationReport,
   type WalletAddress,
 } from '@ton-wallet/core';
-import { estimateFee, getAccount, sendBoc } from './api.ts';
+import { emulate, estimateFee, getAccount, sendBoc } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { deleteEnvelope, loadEnvelope, saveEnvelope } from './storage.ts';
 
@@ -35,6 +38,7 @@ interface PendingSend {
   fee: bigint;
   boc: string;
   seqnoBefore: number;
+  report: SimulationReport;
 }
 
 export function App() {
@@ -238,6 +242,44 @@ function PasswordForm(props: {
   );
 }
 
+const SEVERITY_COLOR: Record<Severity, string> = {
+  info: '#666',
+  warn: '#b36b00',
+  danger: '#b00',
+};
+
+function SimulationView(props: { report: SimulationReport }) {
+  const { report } = props;
+  return (
+    <div style={{ border: '1px solid #ccc', padding: 8, margin: '8px 0' }}>
+      <p style={{ margin: '0 0 4px' }}>
+        <b>Симуляция:</b>{' '}
+        {report.emulated ? 'выполнена (tonapi emulate)' : 'недоступна — оценка по dry-run'}
+      </p>
+      <p style={{ margin: '0 0 4px' }}>
+        Изменение баланса: <b>{formatTonAmount(report.balanceChange)} TON</b> (комиссии ~
+        {formatTonAmount(report.fees)} TON)
+      </p>
+      {report.actions.map((a, i) => (
+        <p key={i} style={{ margin: '0 0 4px' }}>
+          {a.type}: {a.description}
+          {a.amount !== undefined && <> — {formatTonAmount(a.amount)} TON</>}
+        </p>
+      ))}
+      {report.warnings.map((w) => (
+        <p key={w.code} style={{ margin: '0 0 4px', color: SEVERITY_COLOR[w.severity] }}>
+          [{w.severity}] {w.message}
+        </p>
+      ))}
+      {report.verdict === 'danger' && (
+        <p style={{ margin: 0, color: SEVERITY_COLOR.danger }}>
+          <b>Отправка заблокирована: симуляция нашла критичную проблему.</b>
+        </p>
+      )}
+    </div>
+  );
+}
+
 type SendState =
   | { step: 'idle' }
   | { step: 'preparing' }
@@ -296,6 +338,17 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
           ? { initCode: transfer.initCodeBocBase64, initData: transfer.initDataBocBase64! }
           : {}),
       });
+      // Симуляция перед подписью. Сбой сети/прокси — не ошибка: fallback-отчёт.
+      const emu = await emulate(transfer.bocBase64).catch(() => null);
+      const report = buildSimulationReport({
+        event: emu?.ok ? (emu.event ?? null) : null,
+        ...(emu?.rejected && emu.error ? { rejectionError: emu.error } : {}),
+        ownAddressRaw: address.raw,
+        balance: BigInt(own.balance),
+        enteredAmount: nano,
+        recipientDeployed: recipientInfo.deployed,
+        fallbackFee: BigInt(fee.totalFee),
+      });
       setSend({
         step: 'confirm',
         pending: {
@@ -305,6 +358,7 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
           fee: BigInt(fee.totalFee),
           boc: transfer.bocBase64,
           seqnoBefore: own.seqno,
+          report,
         },
       });
     } catch (e) {
@@ -382,8 +436,11 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
           <p style={{ wordBreak: 'break-all' }}>Кому: {send.pending.toDisplay}</p>
           <p>Сумма: {formatTonAmount(send.pending.amount)} TON</p>
           {send.pending.comment && <p>Комментарий: {send.pending.comment}</p>}
-          <p>Оценка комиссии (dry-run): ~{formatTonAmount(send.pending.fee)} TON</p>
-          <button onClick={() => confirmSend(send.pending)}>
+          <SimulationView report={send.pending.report} />
+          <button
+            onClick={() => confirmSend(send.pending)}
+            disabled={send.pending.report.verdict === 'danger'}
+          >
             {send.step === 'sending'
               ? 'Отправляем…'
               : send.step === 'waiting'

@@ -79,6 +79,28 @@ app.get<{
   return { transactions: result };
 });
 
+// Досье адреса для анти-скам карточки: только публичные данные toncenter.
+// Возраст/счётчик считаем по последним 50 tx: если их ровно 50 — счётчик «50+»,
+// а firstSeen — лишь нижняя граница возраста (txCountCapped=true).
+app.get<{ Params: { address: string } }>('/address-intel/:address', async (request) => {
+  const address = encodeURIComponent(request.params.address);
+  const [info, txs] = await Promise.all([
+    toncenter(`getWalletInformation?address=${address}`) as Promise<{
+      balance: string;
+      account_state: string;
+    }>,
+    toncenter(`getTransactions?address=${address}&limit=50`) as Promise<Array<{ utime: number }>>,
+  ]);
+  return {
+    deployed: info.account_state === 'active',
+    balance: info.balance,
+    txCount: txs.length,
+    txCountCapped: txs.length >= 50,
+    firstSeen: txs.length > 0 ? txs[txs.length - 1]!.utime : null,
+    lastSeen: txs.length > 0 ? txs[0]!.utime : null,
+  };
+});
+
 app.post<{
   Body: { address: string; body: string; initCode?: string; initData?: string };
 }>('/estimate-fee', async (request) => {

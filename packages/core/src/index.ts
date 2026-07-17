@@ -8,9 +8,11 @@ export {
 export {
   getWalletAddress,
   getWalletContract,
+  IMPORTABLE_VERSIONS,
   type GetWalletAddressOptions,
   type Network,
   type WalletAddress,
+  type WalletContract,
   type WalletVersion,
 } from './wallet.ts';
 export { toNano, fromNano, parseTonAmount, formatTonAmount } from './money.ts';

@@ -17,6 +17,17 @@ export const EXPECTED_MAINNET = {
   nonBounceable: 'UQAxtBKB8b7jgX9FTjl0DqwwoHY5E_pPniSn1tF4_TImhGNy',
 };
 
+// v4r2/v3r2: walletId стандартный (698983191), адрес не зависит от сети
+export const EXPECTED_V4R2 = {
+  raw: '0:e58fd0554dbdb1d19018c253b15efb0edc42d3e00b6cb47ab20aac67986e2005',
+  testnetNonBounceable: '0QDlj9BVTb2x0ZAYwlOxXvsO3ELT4AtstHqyCqxnmG4gBTzD',
+};
+
+export const EXPECTED_V3R2 = {
+  raw: '0:f09893a591e74ee679689425041334fd09144d0a73d81a30c98e7c194aab73f6',
+  testnetNonBounceable: '0QDwmJOlkedO5nlolCUEEzT9CRRNCnPYGjDJjnwZSqtz9k9R',
+};
+
 // Валидная BIP39-фраза (стандартный тестовый вектор) — должна быть
 // невалидной по TON-схеме мнемоники.
 export const BIP39_MNEMONIC = [...Array(23).fill('abandon'), 'art'] as string[];

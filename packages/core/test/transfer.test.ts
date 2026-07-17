@@ -76,3 +76,44 @@ describe('createTransfer (v5r1)', () => {
     expect((await build()).bocBase64).toBe((await build()).bocBase64);
   });
 });
+
+describe('createTransfer (импорт v4r2/v3r2)', () => {
+  async function build(version: 'v4r2' | 'v3r2', seqno = 5) {
+    const keyPair = await mnemonicToKeyPair(TEST_MNEMONIC);
+    return createTransfer({
+      keyPair,
+      version,
+      network: 'testnet',
+      seqno,
+      to: RECIPIENT,
+      amount: 100_000_000n,
+      bounce: false,
+      comment: 'test',
+      now: NOW,
+    });
+  }
+
+  for (const version of ['v4r2', 'v3r2'] as const) {
+    it(`${version}: external адресован своему кошельку, valid_until и seqno в теле`, async () => {
+      const { bocBase64, validUntil } = await build(version);
+      const message = loadMessage(Cell.fromBase64(bocBase64).beginParse());
+      expect(message.info.type).toBe('external-in');
+      const keyPair = await mnemonicToKeyPair(TEST_MNEMONIC);
+      const self = getWalletAddress(keyPair, { version, network: 'testnet' });
+      expect(message.info.dest?.toString()).toBe(Address.parseRaw(self.raw).toString());
+
+      // Тело v3/v4: signature(512) · walletId(32) · valid_until(32) · seqno(32)
+      const body = message.body.beginParse();
+      body.loadBits(512);
+      expect(body.loadUint(32)).toBe(698983191); // стандартный walletId
+      expect(body.loadUint(32)).toBe(validUntil);
+      expect(body.loadUint(32)).toBe(5);
+    });
+
+    it(`${version}: seqno=0 включает stateInit, детерминирован`, async () => {
+      const deploy = loadMessage(Cell.fromBase64((await build(version, 0)).bocBase64).beginParse());
+      expect(deploy.init).not.toBeNull();
+      expect((await build(version)).bocBase64).toBe((await build(version)).bocBase64);
+    });
+  }
+});

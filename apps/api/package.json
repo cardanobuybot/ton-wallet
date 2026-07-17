@@ -5,8 +5,8 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.ts",
-    "start": "node src/server.ts",
+    "dev": "node --env-file-if-exists=.env --watch src/server.ts",
+    "start": "node --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

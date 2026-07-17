@@ -28,3 +28,12 @@ export {
   KDF_ITERATIONS,
   type KeystoreEnvelope,
 } from './keystore.ts';
+export {
+  buildSimulationReport,
+  type BuildReportParams,
+  type Severity,
+  type SimulationAction,
+  type SimulationReport,
+  type SimulationVerdict,
+  type SimulationWarning,
+} from './simulation.ts';

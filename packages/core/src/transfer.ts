@@ -1,6 +1,7 @@
 import { beginCell, comment, external, internal, SendMode, storeMessage } from '@ton/core';
-import type { Address } from '@ton/core';
+import type { Address, Cell, MessageRelaxed } from '@ton/core';
 import type { KeyPair } from '@ton/crypto';
+import { WalletContractV5R1 } from '@ton/ton';
 import { getWalletContract } from './wallet.ts';
 import type { Network, WalletVersion } from './wallet.ts';
 
@@ -30,6 +31,8 @@ export interface CreateTransferParams {
   amount: bigint;
   bounce: boolean;
   comment?: string;
+  /** Произвольное тело внутреннего сообщения (напр. jetton transfer). Взаимоисключимо с comment. */
+  body?: Cell;
   /** Для тестов: «сейчас» в unix-секундах */
   now?: number;
 }
@@ -62,7 +65,7 @@ export function createTransfer(params: CreateTransferParams): SignedTransfer {
   const now = params.now ?? Math.floor(Date.now() / 1000);
   const validUntil = now + TRANSFER_TTL_SECONDS;
 
-  const body = wallet.createTransfer({
+  const transferArgs = {
     seqno: params.seqno,
     secretKey: params.keyPair.secretKey,
     timeout: validUntil,
@@ -72,10 +75,16 @@ export function createTransfer(params: CreateTransferParams): SignedTransfer {
         to: params.to,
         value: params.amount,
         bounce: params.bounce,
-        body: params.comment ? comment(params.comment) : undefined,
+        body: params.body ?? (params.comment ? comment(params.comment) : undefined),
       }),
-    ],
-  });
+    ] as MessageRelaxed[],
+  };
+  // Разные классы контрактов — разные generic-сигнатуры createTransfer,
+  // union напрямую не вызывается; форма signed-аргументов у всех одна.
+  const body: Cell =
+    wallet instanceof WalletContractV5R1
+      ? wallet.createTransfer(transferArgs)
+      : wallet.createTransfer(transferArgs);
 
   const deploy = params.seqno === 0;
   const message = external({

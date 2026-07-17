@@ -1,8 +1,11 @@
-import { WalletContractV5R1 } from '@ton/ton';
+import { WalletContractV3R2, WalletContractV4, WalletContractV5R1 } from '@ton/ton';
 import type { KeyPair } from '@ton/crypto';
 
-export type WalletVersion = 'v5r1';
+// v4r2/v3r2 — только для импорта существующих кошельков; новые — только v5r1
+export type WalletVersion = 'v5r1' | 'v4r2' | 'v3r2';
 export type Network = 'testnet' | 'mainnet';
+
+export const IMPORTABLE_VERSIONS: readonly WalletVersion[] = ['v5r1', 'v4r2', 'v3r2'];
 
 const NETWORK_GLOBAL_ID: Record<Network, number> = {
   mainnet: -239,
@@ -23,11 +26,13 @@ export interface WalletAddress {
   nonBounceable: string;
 }
 
-type ContractBuilder = (publicKey: Buffer, network: Network) => WalletContractV5R1;
+export type WalletContract = WalletContractV5R1 | WalletContractV4 | WalletContractV3R2;
+
+type ContractBuilder = (publicKey: Buffer, network: Network) => WalletContract;
 
 /**
- * Registry версий контрактов: новые кошельки — только v5r1,
- * но импорт v4r2/v3r2 добавится сюда же без изменения API.
+ * Registry версий контрактов. Новые кошельки создаются только v5r1;
+ * v4r2/v3r2 существуют ради импорта (Tonkeeper и др.).
  */
 const CONTRACT_BUILDERS: Record<WalletVersion, ContractBuilder> = {
   v5r1: (publicKey, network) =>
@@ -40,12 +45,16 @@ const CONTRACT_BUILDERS: Record<WalletVersion, ContractBuilder> = {
         context: { walletVersion: 'v5r1', workchain: 0, subwalletNumber: 0 },
       },
     }),
+  // У v4r2/v3r2 walletId не зависит от сети (стандартный 698983191 + workchain):
+  // адрес один и тот же в testnet и mainnet — так делают все основные кошельки.
+  v4r2: (publicKey) => WalletContractV4.create({ workchain: 0, publicKey }),
+  v3r2: (publicKey) => WalletContractV3R2.create({ workchain: 0, publicKey }),
 };
 
 export function getWalletContract(
   keyPair: Pick<KeyPair, 'publicKey'>,
   options: GetWalletAddressOptions,
-): WalletContractV5R1 {
+): WalletContract {
   return CONTRACT_BUILDERS[options.version](keyPair.publicKey, options.network);
 }
 

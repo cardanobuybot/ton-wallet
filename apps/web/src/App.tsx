@@ -12,12 +12,14 @@ import {
   parseTonAmount,
   resolveBounce,
   validateMnemonic,
+  parseTransactions,
   type Severity,
   type SimulationReport,
+  type TxHistoryItem,
   type WalletAddress,
 } from '@ton-wallet/core';
 import qrcode from 'qrcode-generator';
-import { emulate, estimateFee, getAccount, sendBoc } from './api.ts';
+import { emulate, estimateFee, getAccount, getTransactions, sendBoc } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { deleteEnvelope, loadEnvelope, saveEnvelope } from './storage.ts';
 
@@ -314,6 +316,86 @@ function SimulationView(props: { report: SimulationReport }) {
   );
 }
 
+const txHashHex = (base64: string): string =>
+  Array.from(atob(base64), (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+
+function History(props: { address: WalletAddress; reloadKey: number }) {
+  const [items, setItems] = useState<TxHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [exhausted, setExhausted] = useState(false);
+
+  const load = useCallback(
+    async (cursor?: { lt: string; hash: string }) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { transactions } = await getTransactions(props.address.nonBounceable, cursor);
+        const page = parseTransactions(transactions, 'testnet');
+        // Курсорная страница включает саму курсорную транзакцию — отбрасываем её
+        const fresh = cursor ? page.filter((t) => t.lt !== cursor.lt) : page;
+        setItems((prev) => (cursor ? [...prev, ...fresh] : page));
+        if (fresh.length === 0) setExhausted(true);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [props.address.nonBounceable],
+  );
+
+  useEffect(() => {
+    setExhausted(false);
+    load().catch(() => {});
+    // reloadKey (seqno) меняется после отправки — история перезагружается
+  }, [load, props.reloadKey]);
+
+  const last = items[items.length - 1];
+
+  return (
+    <fieldset>
+      <legend>История</legend>
+      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {items.length === 0 && !loading && !error && <p>Транзакций пока нет.</p>}
+      {items.map((t) => (
+        <p key={`${t.lt}:${t.hash}`} style={{ margin: '4px 0' }}>
+          <span style={{ color: t.direction === 'in' ? 'green' : '#b00' }}>
+            {t.direction === 'in' ? '+' : '−'}
+            {formatTonAmount(t.amount)} TON
+          </span>{' '}
+          <small>
+            {new Date(t.utime * 1000).toLocaleString()}{' '}
+            <a
+              href={`https://testnet.tonscan.org/tx/${txHashHex(t.hash)}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              tx
+            </a>
+          </small>
+          <br />
+          {t.counterparty && (
+            <small style={{ wordBreak: 'break-all' }}>
+              {t.direction === 'in' ? 'от' : 'кому'}: {t.counterparty.friendly}
+            </small>
+          )}
+          {t.comment && (
+            <>
+              <br />
+              <small>«{t.comment}»</small>
+            </>
+          )}
+        </p>
+      ))}
+      {loading && <p>Загрузка…</p>}
+      {!loading && last && !exhausted && (
+        <button onClick={() => load({ lt: last.lt, hash: last.hash })}>Ещё</button>
+      )}
+    </fieldset>
+  );
+}
+
 type SendState =
   | { step: 'idle' }
   | { step: 'preparing' }
@@ -520,6 +602,8 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
           <button onClick={() => setSend({ step: 'idle' })}>Ок</button>
         </p>
       )}
+
+      <History address={address} reloadKey={seqno} />
     </>
   );
 }

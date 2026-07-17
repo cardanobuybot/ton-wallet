@@ -32,6 +32,13 @@ export const estimateFee = (params: {
 
 export const sendBoc = (boc: string) => call<{ sent: boolean }>(`/send-boc`, { boc });
 
+export const getTransactions = (address: string, cursor?: { lt: string; hash: string }) =>
+  call<{ transactions: unknown }>(
+    `/transactions/${encodeURIComponent(address)}?limit=20${
+      cursor ? `&lt=${encodeURIComponent(cursor.lt)}&hash=${encodeURIComponent(cursor.hash)}` : ''
+    }`,
+  );
+
 export const emulate = (boc: string, senderAddress: string) =>
   call<{
     ok: boolean;

@@ -39,6 +39,18 @@ export const getTransactions = (address: string, cursor?: { lt: string; hash: st
     }`,
   );
 
+export interface AddressIntel {
+  deployed: boolean;
+  balance: string;
+  txCount: number;
+  txCountCapped: boolean;
+  firstSeen: number | null;
+  lastSeen: number | null;
+}
+
+export const getAddressIntel = (address: string) =>
+  call<AddressIntel>(`/address-intel/${encodeURIComponent(address)}`);
+
 export const emulate = (boc: string, senderAddress: string) =>
   call<{
     ok: boolean;

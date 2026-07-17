@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  analyzeRecipient,
+  applyWarnings,
   buildSimulationReport,
   createTransfer,
   decryptMnemonic,
   encryptMnemonic,
+  formatAddress,
   formatTonAmount,
   generateMnemonic,
   getWalletAddress,
@@ -15,13 +18,30 @@ import {
   parseTransactions,
   type Severity,
   type SimulationReport,
+  type TxCounterparty,
   type TxHistoryItem,
   type WalletAddress,
 } from '@ton-wallet/core';
 import qrcode from 'qrcode-generator';
-import { emulate, estimateFee, getAccount, getTransactions, sendBoc } from './api.ts';
+import {
+  emulate,
+  estimateFee,
+  getAccount,
+  getAddressIntel,
+  getTransactions,
+  sendBoc,
+  type AddressIntel,
+} from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
-import { deleteEnvelope, loadEnvelope, saveEnvelope } from './storage.ts';
+import {
+  deleteAddressBookEntry,
+  deleteEnvelope,
+  listAddressBook,
+  loadEnvelope,
+  saveAddressBookEntry,
+  saveEnvelope,
+  type AddressBookEntry,
+} from './storage.ts';
 
 const NETWORK = 'testnet' as const;
 
@@ -35,13 +55,16 @@ type Screen =
   | { name: 'wallet'; session: Session; address: WalletAddress };
 
 interface PendingSend {
-  toDisplay: string;
   amount: bigint;
   comment: string;
   fee: bigint;
   boc: string;
   seqnoBefore: number;
   report: SimulationReport;
+  recipient: TxCounterparty;
+  /** null — /address-intel недоступен (не блокирует отправку) */
+  intel: AddressIntel | null;
+  label?: string;
 }
 
 export function App() {
@@ -316,10 +339,110 @@ function SimulationView(props: { report: SimulationReport }) {
   );
 }
 
+function RecipientCard(props: { intel: AddressIntel | null; label?: string }) {
+  const { intel, label } = props;
+  const days =
+    intel?.firstSeen != null
+      ? Math.floor((Date.now() / 1000 - intel.firstSeen) / 86400)
+      : null;
+  return (
+    <div style={{ border: '1px solid #ccc', padding: 8, margin: '8px 0' }}>
+      <p style={{ margin: '0 0 4px' }}>
+        <b>Получатель:</b>{' '}
+        {label !== undefined ? (
+          <span style={{ color: 'green' }}>«{label}» (из адресной книги)</span>
+        ) : (
+          'нет в адресной книге'
+        )}
+      </p>
+      {intel === null ? (
+        <p style={{ margin: 0, color: '#666' }}>Досье адреса недоступно.</p>
+      ) : (
+        <p style={{ margin: 0 }}>
+          {intel.firstSeen != null ? (
+            <>
+              Первая транзакция: {new Date(intel.firstSeen * 1000).toLocaleDateString()}
+              {days !== null && <> ({days} дн. назад{intel.txCountCapped ? ' или раньше' : ''})</>}
+            </>
+          ) : (
+            'Транзакций у адреса не видно'
+          )}
+          {' · '}транзакций: {intel.txCount}
+          {intel.txCountCapped ? '+' : ''}
+          {' · '}
+          {intel.deployed ? 'задеплоен' : 'не задеплоен'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AddressBook(props: { book: AddressBookEntry[]; onChange: () => void }) {
+  const [addr, setAddr] = useState('');
+  const [label, setLabel] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <details>
+      <summary>Адресная книга ({props.book.length})</summary>
+      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {props.book.map((e) => (
+        <p key={e.raw} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
+          <b>{e.label}</b> — <small>{e.friendly}</small>{' '}
+          <button
+            onClick={() => {
+              deleteAddressBookEntry(e.raw).then(props.onChange).catch((err) =>
+                setError(String(err)),
+              );
+            }}
+          >
+            Удалить
+          </button>
+        </p>
+      ))}
+      <p>
+        Адрес:{' '}
+        <input style={{ width: '100%' }} value={addr} onChange={(e) => setAddr(e.target.value)} />
+      </p>
+      <p>
+        Метка: <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={40} />{' '}
+        <button
+          onClick={() => {
+            setError(null);
+            try {
+              if (!label.trim()) throw new Error('Пустая метка');
+              const parsed = parseRecipientAddress(addr, NETWORK);
+              const entry: AddressBookEntry = {
+                raw: parsed.address.toRawString(),
+                friendly: formatAddress(parsed.address, NETWORK),
+                label: label.trim(),
+              };
+              saveAddressBookEntry(entry)
+                .then(() => {
+                  setAddr('');
+                  setLabel('');
+                  props.onChange();
+                })
+                .catch((err) => setError(String(err)));
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          }}
+        >
+          Сохранить
+        </button>
+      </p>
+    </details>
+  );
+}
+
 const txHashHex = (base64: string): string =>
   Array.from(atob(base64), (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 
-function History(props: { address: WalletAddress; reloadKey: number }) {
+function History(props: {
+  address: WalletAddress;
+  reloadKey: number;
+  labels: ReadonlyMap<string, string>;
+}) {
   const [items, setItems] = useState<TxHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -377,7 +500,11 @@ function History(props: { address: WalletAddress; reloadKey: number }) {
           <br />
           {t.counterparty && (
             <small style={{ wordBreak: 'break-all' }}>
-              {t.direction === 'in' ? 'от' : 'кому'}: {t.counterparty.friendly}
+              {t.direction === 'in' ? 'от' : 'кому'}:{' '}
+              {props.labels.has(t.counterparty.raw) && (
+                <b style={{ color: 'green' }}>«{props.labels.get(t.counterparty.raw)}» </b>
+              )}
+              {t.counterparty.friendly}
             </small>
           )}
           {t.comment && (
@@ -413,6 +540,14 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
   const [comment, setComment] = useState('');
   const [send, setSend] = useState<SendState>({ step: 'idle' });
   const [error, setError] = useState<string | null>(null);
+  const [book, setBook] = useState<AddressBookEntry[]>([]);
+
+  const reloadBook = useCallback(() => {
+    listAddressBook()
+      .then(setBook)
+      .catch(() => {});
+  }, []);
+  useEffect(reloadBook, [reloadBook]);
 
   const refresh = useCallback(async () => {
     const info = await getAccount(address.nonBounceable);
@@ -431,10 +566,20 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
     try {
       const recipient = parseRecipientAddress(to, NETWORK);
       const nano = parseTonAmount(amount);
-      const [own, recipientInfo] = await Promise.all([
+      const recipientCp: TxCounterparty = {
+        raw: recipient.address.toRawString(),
+        friendly: formatAddress(recipient.address, NETWORK),
+      };
+      // Досье и история — для анти-скам проверок; их сбой не блокирует поток
+      const [own, recipientInfo, intel, ownHistory] = await Promise.all([
         refresh(),
         getAccount(recipient.address.toRawString()),
+        getAddressIntel(recipientCp.raw).catch(() => null),
+        getTransactions(address.nonBounceable)
+          .then((r) => parseTransactions(r.transactions, NETWORK))
+          .catch(() => [] as TxHistoryItem[]),
       ]);
+      const label = book.find((e) => e.raw === recipientCp.raw)?.label;
       // Перевод на кошелёк: bounce=false; для незадеплоенного — принудительно false.
       const bounce = resolveBounce(false, recipientInfo.deployed);
       const transfer = createTransfer({
@@ -462,26 +607,36 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
         emu?.rejected === true &&
         emu.emulatorBalance !== undefined &&
         BigInt(emu.emulatorBalance) < BigInt(own.balance);
-      const report = buildSimulationReport({
-        event: emu?.ok ? (emu.event ?? null) : null,
-        ...(emu?.rejected && emu.error ? { rejectionError: emu.error } : {}),
-        emulatorOutdated,
-        ownAddressRaw: address.raw,
-        balance: BigInt(own.balance),
-        enteredAmount: nano,
-        recipientDeployed: recipientInfo.deployed,
-        fallbackFee: BigInt(fee.totalFee),
-      });
+      const report = applyWarnings(
+        buildSimulationReport({
+          event: emu?.ok ? (emu.event ?? null) : null,
+          ...(emu?.rejected && emu.error ? { rejectionError: emu.error } : {}),
+          emulatorOutdated,
+          ownAddressRaw: address.raw,
+          balance: BigInt(own.balance),
+          enteredAmount: nano,
+          recipientDeployed: recipientInfo.deployed,
+          fallbackFee: BigInt(fee.totalFee),
+        }),
+        // Анти-скам по локальной истории: address poisoning (danger) блокирует
+        analyzeRecipient({
+          recipient: recipientCp,
+          history: ownHistory,
+          recipientLabeled: label !== undefined,
+        }),
+      );
       setSend({
         step: 'confirm',
         pending: {
-          toDisplay: to.trim(),
           amount: nano,
           comment,
           fee: BigInt(fee.totalFee),
           boc: transfer.bocBase64,
           seqnoBefore: own.seqno,
           report,
+          recipient: recipientCp,
+          intel,
+          ...(label !== undefined ? { label } : {}),
         },
       });
     } catch (e) {
@@ -575,9 +730,13 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
       {(send.step === 'confirm' || send.step === 'sending' || send.step === 'waiting') && (
         <fieldset disabled={send.step !== 'confirm'}>
           <legend>Подтверждение</legend>
-          <p style={{ wordBreak: 'break-all' }}>Кому: {send.pending.toDisplay}</p>
+          <p style={{ wordBreak: 'break-all' }}>Кому: {send.pending.recipient.friendly}</p>
           <p>Сумма: {formatTonAmount(send.pending.amount)} TON</p>
           {send.pending.comment && <p>Комментарий: {send.pending.comment}</p>}
+          <RecipientCard
+            intel={send.pending.intel}
+            {...(send.pending.label !== undefined ? { label: send.pending.label } : {})}
+          />
           <SimulationView report={send.pending.report} />
           <button
             onClick={() => confirmSend(send.pending)}
@@ -603,7 +762,13 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
         </p>
       )}
 
-      <History address={address} reloadKey={seqno} />
+      <AddressBook book={book} onChange={reloadBook} />
+
+      <History
+        address={address}
+        reloadKey={seqno}
+        labels={new Map(book.map((e) => [e.raw, e.label]))}
+      />
     </>
   );
 }

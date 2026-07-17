@@ -4,6 +4,8 @@ import {
   applyWarnings,
   buildSimulationReport,
   detectAddressPoisoning,
+  detectFakeToken,
+  normalizeTokenSymbol,
   type TxCounterparty,
   type TxHistoryItem,
 } from '../src/index.ts';
@@ -104,5 +106,56 @@ describe('applyWarnings', () => {
     expect(merged.verdict).toBe('danger');
     expect(merged.warnings[0]!.code).toBe('ADDRESS_POISONING');
     expect(applyWarnings(report, [])).toBe(report);
+  });
+});
+
+describe('detectFakeToken', () => {
+  const officialTestnetUsdt = '0:f418a04cf196ebc959366844a6cdf53a6fd6fff1eadafc892f05210bba31593e';
+  const fakeMaster = '0:501d1481576a4ea1ff9acf279c4e725dce76e9ca6c90622338060c23b47356a0';
+
+  it('чужой мастер с символом USDT → danger FAKE_TOKEN', () => {
+    const w = detectFakeToken({ symbol: 'USDT', masterRaw: fakeMaster, network: 'testnet' });
+    expect(w?.code).toBe('FAKE_TOKEN');
+    expect(w?.severity).toBe('danger');
+  });
+
+  it('официальный мастер → null', () => {
+    expect(
+      detectFakeToken({ symbol: 'USD₮', masterRaw: officialTestnetUsdt, network: 'testnet' }),
+    ).toBeNull();
+  });
+
+  it('неизвестный символ → null', () => {
+    expect(detectFakeToken({ symbol: 'GTT', masterRaw: fakeMaster, network: 'testnet' })).toBeNull();
+  });
+
+  it('кириллические двойники и типографика ловятся', () => {
+    // 'УSDТ' — кириллические У и Т; 'usd₮' — строчные + знак тезера
+    for (const symbol of ['УSDТ', 'usd₮', 'U S D T']) {
+      expect(
+        detectFakeToken({ symbol, masterRaw: fakeMaster, network: 'testnet' })?.code,
+      ).toBe('FAKE_TOKEN');
+    }
+  });
+
+  it('подделка по name при пустом symbol', () => {
+    const w = detectFakeToken({ name: 'USDT', masterRaw: fakeMaster, network: 'testnet' });
+    expect(w?.code).toBe('FAKE_TOKEN');
+  });
+
+  it('мастер сравнивается без учёта регистра', () => {
+    expect(
+      detectFakeToken({
+        symbol: 'USDT',
+        masterRaw: officialTestnetUsdt.toUpperCase().replace('0:', '0:'),
+        network: 'testnet',
+      }),
+    ).toBeNull();
+  });
+
+  it('normalizeTokenSymbol канонизирует', () => {
+    expect(normalizeTokenSymbol('usd₮')).toBe('USDT');
+    expect(normalizeTokenSymbol('УSDТ')).toBe('USDT');
+    expect(normalizeTokenSymbol('N0T')).toBe('NOT');
   });
 });

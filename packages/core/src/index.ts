@@ -62,7 +62,12 @@ export {
 export {
   analyzeRecipient,
   detectAddressPoisoning,
+  detectFakeToken,
+  KNOWN_JETTONS,
+  normalizeTokenSymbol,
   POISONING_PREFIX_LEN,
   POISONING_SUFFIX_LEN,
   type AnalyzeRecipientParams,
+  type DetectFakeTokenParams,
+  type KnownJetton,
 } from './antiscam.ts';

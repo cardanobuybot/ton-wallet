@@ -5,6 +5,7 @@ import {
   buildJettonTransferBody,
   buildSimulationReport,
   createTransfer,
+  detectFakeToken,
   formatTokenAmount,
   JETTON_TRANSFER_ATTACHED_TON,
   parseTokenAmount,
@@ -23,6 +24,7 @@ import {
   parseTransactions,
   type Severity,
   type SimulationReport,
+  type SimulationWarning,
   type TxCounterparty,
   type TxHistoryItem,
   type WalletAddress,
@@ -828,11 +830,23 @@ function Dashboard(props: {
           jettonTransfer: selected !== undefined,
         }),
         // Анти-скам по локальной истории: address poisoning (danger) блокирует
-        analyzeRecipient({
-          recipient: recipientCp,
-          history: ownHistory,
-          recipientLabeled: label !== undefined,
-        }),
+        [
+          ...analyzeRecipient({
+            recipient: recipientCp,
+            history: ownHistory,
+            recipientLabeled: label !== undefined,
+          }),
+          ...(selected
+            ? [
+                detectFakeToken({
+                  symbol: selected.symbol,
+                  name: selected.name,
+                  masterRaw: selected.jettonMaster,
+                  network: NETWORK,
+                }),
+              ].filter((w): w is SimulationWarning => w !== null)
+            : []),
+        ],
       );
       setSend({
         step: 'confirm',
@@ -922,15 +936,29 @@ function Dashboard(props: {
       {jettons.length > 0 && (
         <fieldset>
           <legend>Джеттоны</legend>
-          {jettons.map((j) => (
-            <p key={j.jettonMaster} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
-              <b>{formatTokenAmount(BigInt(j.balance), j.decimals)}</b>{' '}
-              {j.symbol ?? j.name ?? 'без имени'}{' '}
-              <button onClick={() => setAsset(j.jettonMaster)}>Отправить</button>
-              <br />
-              <small>master: {j.jettonMaster}</small>
-            </p>
-          ))}
+          {jettons.map((j) => {
+            const fake = detectFakeToken({
+              symbol: j.symbol,
+              name: j.name,
+              masterRaw: j.jettonMaster,
+              network: NETWORK,
+            });
+            return (
+              <p key={j.jettonMaster} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
+                <b>{formatTokenAmount(BigInt(j.balance), j.decimals)}</b>{' '}
+                {j.symbol ?? j.name ?? 'без имени'}{' '}
+                <button onClick={() => setAsset(j.jettonMaster)}>Отправить</button>
+                {fake && (
+                  <>
+                    <br />
+                    <b style={{ color: 'red' }}>⚠ {fake.message}</b>
+                  </>
+                )}
+                <br />
+                <small>master: {j.jettonMaster}</small>
+              </p>
+            );
+          })}
         </fieldset>
       )}
 

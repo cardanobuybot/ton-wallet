@@ -96,3 +96,71 @@ export function analyzeRecipient(params: AnalyzeRecipientParams): SimulationWarn
 
   return warnings;
 }
+
+// ── Fake-token детект ────────────────────────────────────────────────────────
+// Джеттон с символом известного токена, но чужим мастер-контрактом — подделка.
+// Реестр официальных мастеров (raw, lowercase); адреса верифицированы on-chain
+// через toncenter v3 2026-07-17.
+
+export interface KnownJetton {
+  symbol: string;
+  masterRaw: string;
+}
+
+export const KNOWN_JETTONS: Record<'mainnet' | 'testnet', readonly KnownJetton[]> = {
+  mainnet: [
+    {
+      symbol: 'USDT',
+      masterRaw: '0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe',
+    },
+    {
+      symbol: 'NOT',
+      masterRaw: '0:2f956143c461769579baef2e32cc2d7bc18283f40d20bb03e432cd603ac33ffc',
+    },
+  ],
+  testnet: [
+    {
+      symbol: 'USDT',
+      masterRaw: '0:f418a04cf196ebc959366844a6cdf53a6fd6fff1eadafc892f05210bba31593e',
+    },
+  ],
+};
+
+// Кириллические и типографские двойники латиницы, которыми маскируют символ
+const LOOKALIKES: Record<string, string> = {
+  А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P',
+  С: 'C', Т: 'T', У: 'U', Х: 'X', '₮': 'T', '0': 'O',
+};
+
+/** 'USD₮', 'usdt', 'УSDТ' → 'USDT'-подобная каноническая форма */
+export const normalizeTokenSymbol = (s: string): string =>
+  [...s.toUpperCase()].map((ch) => LOOKALIKES[ch] ?? ch).join('').replace(/[^A-Z]/g, '');
+
+export interface DetectFakeTokenParams {
+  symbol?: string | undefined;
+  name?: string | undefined;
+  masterRaw: string;
+  network: 'mainnet' | 'testnet';
+}
+
+/**
+ * Символ (или имя) совпадает с известным токеном, а мастер — другой → danger.
+ * Официальный мастер или неизвестный символ → null.
+ */
+export function detectFakeToken(params: DetectFakeTokenParams): SimulationWarning | null {
+  const master = params.masterRaw.toLowerCase();
+  const candidates = [params.symbol, params.name].filter((v): v is string => Boolean(v));
+  for (const known of KNOWN_JETTONS[params.network]) {
+    const impersonates = candidates.some((c) => normalizeTokenSymbol(c) === known.symbol);
+    if (impersonates && master !== known.masterRaw) {
+      return {
+        severity: 'danger',
+        code: 'FAKE_TOKEN',
+        message:
+          `Токен выдаёт себя за ${known.symbol}, но его контракт не совпадает ` +
+          'с официальным. Это подделка — не отправляйте и не принимайте её всерьёз.',
+      };
+    }
+  }
+  return null;
+}

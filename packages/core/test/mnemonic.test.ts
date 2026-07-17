@@ -7,14 +7,16 @@ import {
 } from '../src/index.ts';
 import { BIP39_MNEMONIC, TEST_MNEMONIC } from './fixtures.ts';
 
+// Генерация — это цикл «энтропия → PBKDF-проверка» со случайным числом итераций;
+// на слабом/троттлящем устройстве дефолтных 5с не хватает. 60с — честный потолок.
 describe('generateMnemonic', () => {
-  it('возвращает 24 слова, проходящие валидацию', async () => {
+  it('возвращает 24 слова, проходящие валидацию', { timeout: 60_000 }, async () => {
     const words = await generateMnemonic();
     expect(words).toHaveLength(MNEMONIC_WORD_COUNT);
     await expect(validateMnemonic(words)).resolves.toBe(true);
   });
 
-  it('две генерации дают разные мнемоники', async () => {
+  it('две генерации дают разные мнемоники', { timeout: 60_000 }, async () => {
     const [a, b] = await Promise.all([generateMnemonic(), generateMnemonic()]);
     expect(a.join(' ')).not.toBe(b.join(' '));
   });

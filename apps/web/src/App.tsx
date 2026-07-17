@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   analyzeRecipient,
   applyWarnings,
+  buildJettonTransferBody,
   buildSimulationReport,
   createTransfer,
+  formatTokenAmount,
+  JETTON_TRANSFER_ATTACHED_TON,
+  parseTokenAmount,
   decryptMnemonic,
   encryptMnemonic,
   formatAddress,
@@ -30,9 +34,11 @@ import {
   estimateFee,
   getAccount,
   getAddressIntel,
+  getJettons,
   getTransactions,
   sendBoc,
   type AddressIntel,
+  type JettonBalance,
 } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import {
@@ -60,7 +66,10 @@ type Screen =
   | { name: 'wallet'; session: Session; address: WalletAddress; version: WalletVersion };
 
 interface PendingSend {
+  /** Прикладываемые к сообщению TON (для джеттона — газ 0.05 TON) */
   amount: bigint;
+  /** Человекочитаемая сумма перевода (для джеттона — в его единицах) */
+  displayAmount: string;
   comment: string;
   fee: bigint;
   boc: string;
@@ -634,6 +643,15 @@ function Dashboard(props: {
   const [send, setSend] = useState<SendState>({ step: 'idle' });
   const [error, setError] = useState<string | null>(null);
   const [book, setBook] = useState<AddressBookEntry[]>([]);
+  const [jettons, setJettons] = useState<JettonBalance[]>([]);
+  // 'TON' либо raw-адрес jetton master выбранного джеттона
+  const [asset, setAsset] = useState('TON');
+
+  useEffect(() => {
+    getJettons(address.nonBounceable)
+      .then((r) => setJettons(r.jettons))
+      .catch(() => {});
+  }, [address.nonBounceable, seqno]);
 
   const reloadBook = useCallback(() => {
     listAddressBook()
@@ -658,7 +676,9 @@ function Dashboard(props: {
     setSend({ step: 'preparing' });
     try {
       const recipient = parseRecipientAddress(to, NETWORK);
-      const nano = parseTonAmount(amount);
+      const selected = asset === 'TON' ? undefined : jettons.find((j) => j.jettonMaster === asset);
+      if (asset !== 'TON' && !selected) throw new Error('Джеттон не найден');
+      const nano = selected ? parseTokenAmount(amount, selected.decimals) : parseTonAmount(amount);
       const recipientCp: TxCounterparty = {
         raw: recipient.address.toRawString(),
         friendly: formatAddress(recipient.address, NETWORK),
@@ -673,17 +693,36 @@ function Dashboard(props: {
           .catch(() => [] as TxHistoryItem[]),
       ]);
       const label = book.find((e) => e.raw === recipientCp.raw)?.label;
+      if (selected && nano > BigInt(selected.balance)) {
+        throw new Error('Недостаточно джеттонов');
+      }
+      // Джеттон: сообщение идёт на СВОЙ jetton wallet (он задеплоен, bounce=true),
+      // прикладываем 0.05 TON газа; получатель — внутри тела TEP-74.
+      const attached = selected ? JETTON_TRANSFER_ATTACHED_TON : nano;
       // Перевод на кошелёк: bounce=false; для незадеплоенного — принудительно false.
-      const bounce = resolveBounce(false, recipientInfo.deployed);
+      const bounce = selected ? true : resolveBounce(false, recipientInfo.deployed);
       const transfer = createTransfer({
         keyPair: session.keyPair,
         version,
         network: NETWORK,
         seqno: own.seqno,
-        to: recipient.address,
-        amount: nano,
+        to: selected
+          ? parseRecipientAddress(selected.jettonWallet, NETWORK).address
+          : recipient.address,
+        amount: attached,
         bounce,
-        ...(comment ? { comment } : {}),
+        ...(selected
+          ? {
+              body: buildJettonTransferBody({
+                amount: nano,
+                to: recipient.address,
+                responseTo: parseRecipientAddress(address.nonBounceable, NETWORK).address,
+                ...(comment ? { comment } : {}),
+              }),
+            }
+          : comment
+            ? { comment }
+            : {}),
       });
       const fee = await estimateFee({
         address: address.nonBounceable,
@@ -707,7 +746,7 @@ function Dashboard(props: {
           emulatorOutdated,
           ownAddressRaw: address.raw,
           balance: BigInt(own.balance),
-          enteredAmount: nano,
+          enteredAmount: attached,
           recipientDeployed: recipientInfo.deployed,
           fallbackFee: BigInt(fee.totalFee),
         }),
@@ -721,7 +760,10 @@ function Dashboard(props: {
       setSend({
         step: 'confirm',
         pending: {
-          amount: nano,
+          amount: attached,
+          displayAmount: selected
+            ? `${formatTokenAmount(nano, selected.decimals)} ${selected.symbol ?? selected.name ?? 'JETTON'} (+ ${formatTonAmount(attached)} TON газ)`
+            : `${formatTonAmount(nano)} TON`,
           comment,
           fee: BigInt(fee.totalFee),
           boc: transfer.bocBase64,
@@ -800,15 +842,42 @@ function Dashboard(props: {
       </details>
       {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
 
+      {jettons.length > 0 && (
+        <fieldset>
+          <legend>Джеттоны</legend>
+          {jettons.map((j) => (
+            <p key={j.jettonMaster} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
+              <b>{formatTokenAmount(BigInt(j.balance), j.decimals)}</b>{' '}
+              {j.symbol ?? j.name ?? 'без имени'}{' '}
+              <button onClick={() => setAsset(j.jettonMaster)}>Отправить</button>
+              <br />
+              <small>master: {j.jettonMaster}</small>
+            </p>
+          ))}
+        </fieldset>
+      )}
+
       {(send.step === 'idle' || send.step === 'preparing') && (
         <fieldset disabled={send.step === 'preparing'}>
-          <legend>Отправить TON</legend>
+          <legend>Отправить</legend>
+          <p>
+            Актив:{' '}
+            <select value={asset} onChange={(e) => setAsset(e.target.value)}>
+              <option value="TON">TON</option>
+              {jettons.map((j) => (
+                <option key={j.jettonMaster} value={j.jettonMaster}>
+                  {j.symbol ?? j.name ?? j.jettonMaster.slice(0, 10)} (
+                  {formatTokenAmount(BigInt(j.balance), j.decimals)})
+                </option>
+              ))}
+            </select>
+          </p>
           <p>
             Кому (raw или friendly):{' '}
             <input style={{ width: '100%' }} value={to} onChange={(e) => setTo(e.target.value)} />
           </p>
           <p>
-            Сумма TON: <input value={amount} onChange={(e) => setAmount(e.target.value)} />
+            Сумма: <input value={amount} onChange={(e) => setAmount(e.target.value)} />
           </p>
           <p>
             Комментарий:{' '}
@@ -824,7 +893,7 @@ function Dashboard(props: {
         <fieldset disabled={send.step !== 'confirm'}>
           <legend>Подтверждение</legend>
           <p style={{ wordBreak: 'break-all' }}>Кому: {send.pending.recipient.friendly}</p>
-          <p>Сумма: {formatTonAmount(send.pending.amount)} TON</p>
+          <p>Сумма: {send.pending.displayAmount}</p>
           {send.pending.comment && <p>Комментарий: {send.pending.comment}</p>}
           <RecipientCard
             intel={send.pending.intel}

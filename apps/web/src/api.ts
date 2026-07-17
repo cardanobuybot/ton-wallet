@@ -39,6 +39,18 @@ export const getTransactions = (address: string, cursor?: { lt: string; hash: st
     }`,
   );
 
+export interface JettonBalance {
+  jettonWallet: string;
+  jettonMaster: string;
+  balance: string;
+  decimals: number;
+  symbol?: string;
+  name?: string;
+}
+
+export const getJettons = (address: string) =>
+  call<{ jettons: JettonBalance[] }>(`/jettons/${encodeURIComponent(address)}`);
+
 export interface AddressIntel {
   deployed: boolean;
   balance: string;

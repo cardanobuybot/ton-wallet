@@ -81,6 +81,23 @@ export interface BuildReportParams {
 /** Допуск на комиссии при сравнении «итоговый расход vs введённая сумма» */
 const SPEND_TOLERANCE = 100_000_000n; // 0.1 TON
 
+const computeVerdict = (warnings: SimulationWarning[]): SimulationVerdict =>
+  warnings.some((w) => w.severity === 'danger')
+    ? 'danger'
+    : warnings.some((w) => w.severity === 'warn')
+      ? 'warn'
+      : 'ok';
+
+/** Добавляет к отчёту внешние предупреждения (напр. анти-скам) и пересчитывает вердикт. */
+export function applyWarnings(
+  report: SimulationReport,
+  extra: SimulationWarning[],
+): SimulationReport {
+  if (extra.length === 0) return report;
+  const warnings = [...extra, ...report.warnings];
+  return { ...report, warnings, verdict: computeVerdict(warnings) };
+}
+
 export function buildSimulationReport(params: BuildReportParams): SimulationReport {
   const warnings: SimulationWarning[] = [];
   let actions: SimulationAction[] = [];
@@ -188,11 +205,5 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
     });
   }
 
-  const verdict: SimulationVerdict = warnings.some((w) => w.severity === 'danger')
-    ? 'danger'
-    : warnings.some((w) => w.severity === 'warn')
-      ? 'warn'
-      : 'ok';
-
-  return { emulated, actions, balanceChange, fees, warnings, verdict };
+  return { emulated, actions, balanceChange, fees, warnings, verdict: computeVerdict(warnings) };
 }

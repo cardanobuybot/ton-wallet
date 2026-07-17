@@ -29,6 +29,7 @@ export {
   type KeystoreEnvelope,
 } from './keystore.ts';
 export {
+  applyWarnings,
   buildSimulationReport,
   type BuildReportParams,
   type Severity,
@@ -42,3 +43,10 @@ export {
   type TxCounterparty,
   type TxHistoryItem,
 } from './history.ts';
+export {
+  analyzeRecipient,
+  detectAddressPoisoning,
+  POISONING_PREFIX_LEN,
+  POISONING_SUFFIX_LEN,
+  type AnalyzeRecipientParams,
+} from './antiscam.ts';

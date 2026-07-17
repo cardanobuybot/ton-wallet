@@ -43,8 +43,25 @@ export async function loadEnvelope(): Promise<KeystoreEnvelope | null> {
 
 export async function deleteEnvelope(): Promise<void> {
   const db = await openDb();
-  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).delete(KEY));
+  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+  await Promise.all([request(store.delete(KEY)), request(store.delete(VERSION_KEY))]);
   db.close();
+}
+
+// Версия контракта кошелька (v5r1/v4r2/v3r2) — публичная настройка, не секрет
+const VERSION_KEY = 'walletVersion';
+
+export async function saveWalletVersion(version: string): Promise<void> {
+  const db = await openDb();
+  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(version, VERSION_KEY));
+  db.close();
+}
+
+export async function loadWalletVersion(): Promise<string | null> {
+  const db = await openDb();
+  const result = await request(db.transaction(STORE, 'readonly').objectStore(STORE).get(VERSION_KEY));
+  db.close();
+  return (result as string | undefined) ?? null;
 }
 
 export interface AddressBookEntry {

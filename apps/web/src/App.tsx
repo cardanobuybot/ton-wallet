@@ -10,6 +10,7 @@ import {
   formatTonAmount,
   generateMnemonic,
   getWalletAddress,
+  IMPORTABLE_VERSIONS,
   mnemonicToKeyPair,
   parseRecipientAddress,
   parseTonAmount,
@@ -21,6 +22,7 @@ import {
   type TxCounterparty,
   type TxHistoryItem,
   type WalletAddress,
+  type WalletVersion,
 } from '@ton-wallet/core';
 import qrcode from 'qrcode-generator';
 import {
@@ -38,8 +40,10 @@ import {
   deleteEnvelope,
   listAddressBook,
   loadEnvelope,
+  loadWalletVersion,
   saveAddressBookEntry,
   saveEnvelope,
+  saveWalletVersion,
   type AddressBookEntry,
 } from './storage.ts';
 
@@ -50,9 +54,10 @@ type Screen =
   | { name: 'setup' }
   | { name: 'show-mnemonic'; mnemonic: string[] }
   | { name: 'import' }
-  | { name: 'password'; mnemonic: string[] }
+  | { name: 'choose-version'; mnemonic: string[] }
+  | { name: 'password'; mnemonic: string[]; version: WalletVersion }
   | { name: 'locked' }
-  | { name: 'wallet'; session: Session; address: WalletAddress };
+  | { name: 'wallet'; session: Session; address: WalletAddress; version: WalletVersion };
 
 interface PendingSend {
   amount: bigint;
@@ -102,12 +107,12 @@ export function App() {
     };
   }, [screen.name, lock]);
 
-  async function openWallet(mnemonic: string[]) {
+  async function openWallet(mnemonic: string[], version: WalletVersion) {
     const keyPair = await mnemonicToKeyPair(mnemonic);
     const session: Session = { keyPair, mnemonic };
     sessionRef.current = session;
-    const address = getWalletAddress(keyPair, { version: 'v5r1', network: NETWORK });
-    setScreen({ name: 'wallet', session, address });
+    const address = getWalletAddress(keyPair, { version, network: NETWORK });
+    setScreen({ name: 'wallet', session, address, version });
   }
 
   async function guard<T>(fn: () => Promise<T>) {
@@ -148,7 +153,11 @@ export function App() {
               <li key={i}>{w}</li>
             ))}
           </ol>
-          <button onClick={() => setScreen({ name: 'password', mnemonic: screen.mnemonic })}>
+          <button
+            onClick={() =>
+              setScreen({ name: 'password', mnemonic: screen.mnemonic, version: 'v5r1' })
+            }
+          >
             Я записал — дальше
           </button>
         </>
@@ -161,10 +170,18 @@ export function App() {
               if (!(await validateMnemonic(words))) {
                 throw new Error('Невалидная мнемоника (нужны 24 слова TON-схемы)');
               }
-              setScreen({ name: 'password', mnemonic: words });
+              setScreen({ name: 'choose-version', mnemonic: words });
             })
           }
           onBack={() => setScreen({ name: 'setup' })}
+        />
+      )}
+
+      {screen.name === 'choose-version' && (
+        <VersionPicker
+          mnemonic={screen.mnemonic}
+          onPick={(version) => setScreen({ name: 'password', mnemonic: screen.mnemonic, version })}
+          onBack={() => setScreen({ name: 'import' })}
         />
       )}
 
@@ -175,7 +192,8 @@ export function App() {
             guard(async () => {
               if (password.length < 8) throw new Error('Пароль короче 8 символов');
               await saveEnvelope(await encryptMnemonic(screen.mnemonic, password));
-              await openWallet(screen.mnemonic);
+              await saveWalletVersion(screen.version);
+              await openWallet(screen.mnemonic, screen.version);
             })
           }
         />
@@ -193,7 +211,11 @@ export function App() {
                   setScreen({ name: 'setup' });
                   return;
                 }
-                await openWallet(await decryptMnemonic(envelope, password));
+                const stored = await loadWalletVersion();
+                const version = (IMPORTABLE_VERSIONS as readonly string[]).includes(stored ?? '')
+                  ? (stored as WalletVersion)
+                  : 'v5r1';
+                await openWallet(await decryptMnemonic(envelope, password), version);
               })
             }
           />
@@ -215,7 +237,12 @@ export function App() {
       )}
 
       {screen.name === 'wallet' && (
-        <Dashboard session={screen.session} address={screen.address} onLock={lock} />
+        <Dashboard
+          session={screen.session}
+          address={screen.address}
+          version={screen.version}
+          onLock={lock}
+        />
       )}
     </main>
   );
@@ -237,6 +264,67 @@ function ImportForm(props: { onSubmit: (words: string[]) => void; onBack: () => 
         <button onClick={() => props.onSubmit(text.trim().toLowerCase().split(/\s+/))}>
           Импортировать
         </button>{' '}
+        <button onClick={props.onBack}>Назад</button>
+      </p>
+    </>
+  );
+}
+
+function VersionPicker(props: {
+  mnemonic: string[];
+  onPick: (version: WalletVersion) => void;
+  onBack: () => void;
+}) {
+  const [rows, setRows] = useState<Array<{
+    version: WalletVersion;
+    address: WalletAddress;
+    balance: bigint | null;
+    deployed: boolean;
+  }> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const keyPair = await mnemonicToKeyPair(props.mnemonic);
+      const result = await Promise.all(
+        IMPORTABLE_VERSIONS.map(async (version) => {
+          const address = getWalletAddress(keyPair, { version, network: NETWORK });
+          const info = await getAccount(address.nonBounceable).catch(() => null);
+          return {
+            version,
+            address,
+            balance: info ? BigInt(info.balance) : null,
+            deployed: info?.deployed ?? false,
+          };
+        }),
+      );
+      if (!cancelled) setRows(result);
+    })().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [props.mnemonic]);
+
+  return (
+    <>
+      <h2>Выбери версию кошелька</h2>
+      <p>
+        Одна мнемоника даёт разные адреса в разных версиях контракта. Выбери ту, где твои
+        средства (обычно — где баланс не нулевой).
+      </p>
+      {rows === null && <p>Смотрим балансы…</p>}
+      {rows?.map((r) => (
+        <p key={r.version} style={{ wordBreak: 'break-all' }}>
+          <button onClick={() => props.onPick(r.version)}>Выбрать {r.version}</button>{' '}
+          <b>
+            {r.balance === null ? 'баланс недоступен' : `${formatTonAmount(r.balance)} TON`}
+          </b>
+          {r.deployed && ' · задеплоен'}
+          <br />
+          <small>{r.address.nonBounceable}</small>
+        </p>
+      ))}
+      <p>
         <button onClick={props.onBack}>Назад</button>
       </p>
     </>
@@ -531,8 +619,13 @@ type SendState =
   | { step: 'waiting'; pending: PendingSend }
   | { step: 'done' };
 
-function Dashboard(props: { session: Session; address: WalletAddress; onLock: () => void }) {
-  const { session, address } = props;
+function Dashboard(props: {
+  session: Session;
+  address: WalletAddress;
+  version: WalletVersion;
+  onLock: () => void;
+}) {
+  const { session, address, version } = props;
   const [balance, setBalance] = useState<bigint | null>(null);
   const [seqno, setSeqno] = useState(0);
   const [to, setTo] = useState('');
@@ -584,7 +677,7 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
       const bounce = resolveBounce(false, recipientInfo.deployed);
       const transfer = createTransfer({
         keyPair: session.keyPair,
-        version: 'v5r1',
+        version,
         network: NETWORK,
         seqno: own.seqno,
         to: recipient.address,
@@ -676,7 +769,7 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
   return (
     <>
       <p>
-        Адрес (testnet): <b style={{ wordBreak: 'break-all' }}>{address.nonBounceable}</b>
+        Адрес (testnet, {version}): <b style={{ wordBreak: 'break-all' }}>{address.nonBounceable}</b>
         <br />
         Баланс: <b>{balance === null ? '…' : `${formatTonAmount(balance)} TON`}</b> (seqno {seqno}){' '}
         <button onClick={() => refresh().catch((e) => setError(String(e)))}>Обновить</button>{' '}

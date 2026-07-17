@@ -16,6 +16,7 @@ import {
   type SimulationReport,
   type WalletAddress,
 } from '@ton-wallet/core';
+import qrcode from 'qrcode-generator';
 import { emulate, estimateFee, getAccount, sendBoc } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { deleteEnvelope, loadEnvelope, saveEnvelope } from './storage.ts';
@@ -242,6 +243,34 @@ function PasswordForm(props: {
   );
 }
 
+function QrCode(props: { data: string; size?: number }) {
+  const qr = qrcode(0, 'M');
+  qr.addData(props.data);
+  qr.make();
+  const n = qr.getModuleCount();
+  const quiet = 4;
+  const total = n + quiet * 2;
+  let path = '';
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (qr.isDark(r, c)) path += `M${c + quiet} ${r + quiet}h1v1h-1z`;
+    }
+  }
+  return (
+    <svg
+      viewBox={`0 0 ${total} ${total}`}
+      width={props.size ?? 200}
+      height={props.size ?? 200}
+      role="img"
+      aria-label="QR-код адреса"
+      shapeRendering="crispEdges"
+    >
+      <rect width={total} height={total} fill="#fff" />
+      <path d={path} fill="#000" />
+    </svg>
+  );
+}
+
 const SEVERITY_COLOR: Record<Severity, string> = {
   info: '#666',
   warn: '#b36b00',
@@ -420,6 +449,24 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
           Открыть в tonviewer (testnet)
         </a>
       </p>
+      <details>
+        <summary>Получить TON (QR)</summary>
+        <p>
+          <QrCode data={`ton://transfer/${address.nonBounceable}`} />
+        </p>
+        <p style={{ wordBreak: 'break-all' }}>
+          {address.nonBounceable}{' '}
+          <button
+            onClick={() =>
+              navigator.clipboard
+                .writeText(address.nonBounceable)
+                .catch((e) => setError(String(e)))
+            }
+          >
+            Скопировать адрес
+          </button>
+        </p>
+      </details>
       {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
 
       {(send.step === 'idle' || send.step === 'preparing') && (

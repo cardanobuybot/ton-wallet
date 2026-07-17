@@ -61,6 +61,12 @@ export interface BuildReportParams {
   event: unknown | null;
   /** Текст ошибки tonapi 4xx: эмулятор отверг сообщение — это danger, не fallback. */
   rejectionError?: string;
+  /**
+   * Эмулятор доказуемо смотрит на устаревшее состояние (его баланс отправителя
+   * меньше баланса по toncenter). Отказ такого эмулятора недостоверен:
+   * вместо danger — warn EMULATOR_STALE, отправка не блокируется.
+   */
+  emulatorOutdated?: boolean;
   /** raw-адрес нашего кошелька (`0:<hex>`) */
   ownAddressRaw: string;
   /** Текущий баланс, нанотоны */
@@ -83,11 +89,21 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
   let emulated = false;
 
   if (params.rejectionError !== undefined) {
-    warnings.push({
-      severity: 'danger',
-      code: 'EMULATION_REJECTED',
-      message: `Эмулятор отверг транзакцию — она не исполнится в сети. ${params.rejectionError}`,
-    });
+    if (params.emulatorOutdated) {
+      warnings.push({
+        severity: 'warn',
+        code: 'EMULATOR_STALE',
+        message:
+          'Эмулятор отстаёт от сети и не видит текущий баланс — его отказ недостоверен. ' +
+          'Показана только оценка комиссии. Отправляй, только если уверен.',
+      });
+    } else {
+      warnings.push({
+        severity: 'danger',
+        code: 'EMULATION_REJECTED',
+        message: `Эмулятор отверг транзакцию — она не исполнится в сети. ${params.rejectionError}`,
+      });
+    }
   } else if (params.event === null) {
     warnings.push({
       severity: 'warn',

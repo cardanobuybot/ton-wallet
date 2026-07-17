@@ -344,10 +344,17 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
           : {}),
       });
       // Симуляция перед подписью. Сбой сети/прокси — не ошибка: fallback-отчёт.
-      const emu = await emulate(transfer.bocBase64).catch(() => null);
+      const emu = await emulate(transfer.bocBase64, address.raw).catch(() => null);
+      // Эмулятор видит меньше денег, чем toncenter → его индексер отстал,
+      // отказ недостоверен (EMULATOR_STALE вместо блокировки).
+      const emulatorOutdated =
+        emu?.rejected === true &&
+        emu.emulatorBalance !== undefined &&
+        BigInt(emu.emulatorBalance) < BigInt(own.balance);
       const report = buildSimulationReport({
         event: emu?.ok ? (emu.event ?? null) : null,
         ...(emu?.rejected && emu.error ? { rejectionError: emu.error } : {}),
+        emulatorOutdated,
         ownAddressRaw: address.raw,
         balance: BigInt(own.balance),
         enteredAmount: nano,

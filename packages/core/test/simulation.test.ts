@@ -44,6 +44,32 @@ describe('правила предупреждений', () => {
     expect(r.warnings.map((w) => w.code)).toContain('EMULATION_REJECTED');
   });
 
+  it('отказ устаревшего эмулятора → warn EMULATOR_STALE, не danger', () => {
+    const r = buildSimulationReport({
+      ...base,
+      event: null,
+      rejectionError: rejected.error,
+      emulatorOutdated: true,
+      fallbackFee: 1_000_000n,
+    });
+    expect(r.emulated).toBe(false);
+    expect(r.verdict).toBe('warn');
+    expect(r.warnings.map((w) => w.code)).toContain('EMULATOR_STALE');
+    expect(r.warnings.map((w) => w.code)).not.toContain('EMULATION_REJECTED');
+    expect(r.fees).toBe(1_000_000n);
+  });
+
+  it('отказ эмулятора без доказательства устаревания → остаётся danger', () => {
+    const r = buildSimulationReport({
+      ...base,
+      event: null,
+      rejectionError: rejected.error,
+      emulatorOutdated: false,
+    });
+    expect(r.verdict).toBe('danger');
+    expect(r.warnings.map((w) => w.code)).toContain('EMULATION_REJECTED');
+  });
+
   it('эмуляция недоступна → warn SIMULATION_UNAVAILABLE, отправка не блокируется', () => {
     const r = buildSimulationReport({ ...base, event: null, fallbackFee: 1_000_000n });
     expect(r.verdict).toBe('warn');

@@ -88,7 +88,7 @@ const tonapiKey = process.env.TONAPI_KEY;
 // Эмуляция перед подписью: принимает уже подписанный BOC, отдаёт публичный trace.
 // 200 { ok:true, event } — эмуляция прошла; 200 { ok:false, rejected:true, error } —
 // эмулятор отверг сообщение (это вердикт, а не сбой); 502 — tonapi недоступен.
-app.post<{ Body: { boc: string } }>('/emulate', async (request, reply) => {
+app.post<{ Body: { boc: string; senderAddress?: string } }>('/emulate', async (request, reply) => {
   const response = await fetch(`${tonapiBase}/v2/events/emulate`, {
     method: 'POST',
     headers: {
@@ -100,7 +100,32 @@ app.post<{ Body: { boc: string } }>('/emulate', async (request, reply) => {
   });
   if (response.status >= 400 && response.status < 500) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
-    return { ok: false, rejected: true, error: data.error ?? `tonapi ${response.status}` };
+    // Баланс отправителя глазами tonapi: клиент сравнит его с балансом по
+    // toncenter, чтобы распознать отставший индексер (ложный отказ эмулятора).
+    let emulatorBalance: string | undefined;
+    if (request.body.senderAddress) {
+      try {
+        const acc = await fetch(
+          `${tonapiBase}/v2/accounts/${encodeURIComponent(request.body.senderAddress)}`,
+          {
+            headers: { ...(tonapiKey ? { authorization: `Bearer ${tonapiKey}` } : {}) },
+            signal: AbortSignal.timeout(toncenterTimeoutMs),
+          },
+        );
+        if (acc.ok) {
+          const info = (await acc.json()) as { balance: number | string };
+          emulatorBalance = String(info.balance);
+        }
+      } catch {
+        // недоступно — просто не прикладываем баланс
+      }
+    }
+    return {
+      ok: false,
+      rejected: true,
+      error: data.error ?? `tonapi ${response.status}`,
+      ...(emulatorBalance !== undefined ? { emulatorBalance } : {}),
+    };
   }
   if (!response.ok) {
     return reply.code(502).send({ ok: false, error: `tonapi HTTP ${response.status}` });

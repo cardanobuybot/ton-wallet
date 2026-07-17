@@ -32,5 +32,11 @@ export const estimateFee = (params: {
 
 export const sendBoc = (boc: string) => call<{ sent: boolean }>(`/send-boc`, { boc });
 
-export const emulate = (boc: string) =>
-  call<{ ok: boolean; event?: unknown; rejected?: boolean; error?: string }>(`/emulate`, { boc });
+export const emulate = (boc: string, senderAddress: string) =>
+  call<{
+    ok: boolean;
+    event?: unknown;
+    rejected?: boolean;
+    error?: string;
+    emulatorBalance?: string;
+  }>(`/emulate`, { boc, senderAddress });

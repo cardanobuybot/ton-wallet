@@ -250,11 +250,16 @@ const SEVERITY_COLOR: Record<Severity, string> = {
 
 function SimulationView(props: { report: SimulationReport }) {
   const { report } = props;
+  const rejected = report.warnings.some((w) => w.code === 'EMULATION_REJECTED');
   return (
     <div style={{ border: '1px solid #ccc', padding: 8, margin: '8px 0' }}>
       <p style={{ margin: '0 0 4px' }}>
         <b>Симуляция:</b>{' '}
-        {report.emulated ? 'выполнена (tonapi emulate)' : 'недоступна — оценка по dry-run'}
+        {report.emulated
+          ? 'выполнена (tonapi emulate)'
+          : rejected
+            ? 'эмулятор отверг транзакцию'
+            : 'недоступна — оценка по dry-run'}
       </p>
       <p style={{ margin: '0 0 4px' }}>
         Изменение баланса: <b>{formatTonAmount(report.balanceChange)} TON</b> (комиссии ~

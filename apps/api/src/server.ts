@@ -82,6 +82,32 @@ app.post<{
   return { totalFee: totalFee.toString(), fees: f };
 });
 
+const tonapiBase = process.env.TONAPI_BASE ?? 'https://testnet.tonapi.io';
+const tonapiKey = process.env.TONAPI_KEY;
+
+// Эмуляция перед подписью: принимает уже подписанный BOC, отдаёт публичный trace.
+// 200 { ok:true, event } — эмуляция прошла; 200 { ok:false, rejected:true, error } —
+// эмулятор отверг сообщение (это вердикт, а не сбой); 502 — tonapi недоступен.
+app.post<{ Body: { boc: string } }>('/emulate', async (request, reply) => {
+  const response = await fetch(`${tonapiBase}/v2/events/emulate`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(tonapiKey ? { authorization: `Bearer ${tonapiKey}` } : {}),
+    },
+    body: JSON.stringify({ boc: request.body.boc }),
+    signal: AbortSignal.timeout(toncenterTimeoutMs),
+  });
+  if (response.status >= 400 && response.status < 500) {
+    const data = (await response.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, rejected: true, error: data.error ?? `tonapi ${response.status}` };
+  }
+  if (!response.ok) {
+    return reply.code(502).send({ ok: false, error: `tonapi HTTP ${response.status}` });
+  }
+  return { ok: true, event: await response.json() };
+});
+
 app.post<{ Body: { boc: string } }>('/send-boc', async (request) => {
   await toncenter('sendBoc', { boc: request.body.boc });
   return { sent: true };

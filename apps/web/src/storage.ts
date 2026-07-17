@@ -64,6 +64,26 @@ export async function loadWalletVersion(): Promise<string | null> {
   return (result as string | undefined) ?? null;
 }
 
+// Просим браузер пометить хранилище как невыселяемое: без этого IndexedDB
+// с конвертом ключей может быть вычищена при нехватке места на устройстве.
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (!navigator.storage?.persist) return false;
+  try {
+    return await navigator.storage.persist();
+  } catch {
+    return false;
+  }
+}
+
+export async function isStoragePersisted(): Promise<boolean> {
+  if (!navigator.storage?.persisted) return false;
+  try {
+    return await navigator.storage.persisted();
+  } catch {
+    return false;
+  }
+}
+
 export interface AddressBookEntry {
   raw: string;
   friendly: string;

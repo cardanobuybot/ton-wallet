@@ -45,8 +45,10 @@ import {
   deleteAddressBookEntry,
   deleteEnvelope,
   listAddressBook,
+  isStoragePersisted,
   loadEnvelope,
   loadWalletVersion,
+  requestPersistentStorage,
   saveAddressBookEntry,
   saveEnvelope,
   saveWalletVersion,
@@ -85,6 +87,8 @@ interface PendingSend {
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'loading' });
   const [error, setError] = useState<string | null>(null);
+  // null — ещё не знаем; false — браузер может выселить IndexedDB при нехватке места
+  const [persisted, setPersisted] = useState<boolean | null>(null);
   const sessionRef = useRef<Session | null>(null);
 
   const lock = useCallback(() => {
@@ -99,6 +103,7 @@ export function App() {
     loadEnvelope()
       .then((env) => setScreen(env ? { name: 'locked' } : { name: 'setup' }))
       .catch((e) => setError(String(e)));
+    void isStoragePersisted().then(setPersisted);
   }, []);
 
   // Автолок: 5 минут без активности пользователя → занулить ключи.
@@ -207,6 +212,7 @@ export function App() {
               if (password.length < 8) throw new Error('Пароль короче 8 символов');
               await saveEnvelope(await encryptMnemonic(screen.mnemonic, password));
               await saveWalletVersion(screen.version);
+              setPersisted(await requestPersistentStorage());
               await openWallet(screen.mnemonic, screen.version);
             })
           }
@@ -250,6 +256,15 @@ export function App() {
         </>
       )}
 
+      {screen.name === 'wallet' && persisted === false && (
+        <p style={{ color: '#b36b00' }}>
+          Браузер может удалить локальные данные кошелька при нехватке места.{' '}
+          <button onClick={() => void requestPersistentStorage().then(setPersisted)}>
+            Защитить хранилище
+          </button>{' '}
+          <small>(сид-фраза — единственный настоящий бэкап)</small>
+        </p>
+      )}
       {screen.name === 'wallet' && (
         <Dashboard
           session={screen.session}

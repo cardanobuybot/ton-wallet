@@ -37,3 +37,8 @@ export {
   type SimulationVerdict,
   type SimulationWarning,
 } from './simulation.ts';
+export {
+  parseTransactions,
+  type TxCounterparty,
+  type TxHistoryItem,
+} from './history.ts';

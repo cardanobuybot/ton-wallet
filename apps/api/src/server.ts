@@ -64,6 +64,21 @@ app.get<{ Params: { address: string } }>('/account/:address', async (request) =>
   };
 });
 
+app.get<{
+  Params: { address: string };
+  Querystring: { limit?: string; lt?: string; hash?: string };
+}>('/transactions/:address', async (request) => {
+  const { limit, lt, hash } = request.query;
+  const params = new URLSearchParams({
+    address: request.params.address,
+    limit: String(Math.min(Number(limit ?? 20) || 20, 50)),
+    // Пагинация toncenter: lt+hash последней полученной транзакции
+    ...(lt && hash ? { lt, hash } : {}),
+  });
+  const result = await toncenter(`getTransactions?${params.toString()}`);
+  return { transactions: result };
+});
+
 app.post<{
   Body: { address: string; body: string; initCode?: string; initData?: string };
 }>('/estimate-fee', async (request) => {

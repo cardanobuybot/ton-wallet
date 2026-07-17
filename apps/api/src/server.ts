@@ -79,6 +79,52 @@ app.get<{
   return { transactions: result };
 });
 
+const toncenterV3Base =
+  process.env.TONCENTER_V3_BASE ?? 'https://testnet.toncenter.com/api/v3';
+
+// v3 отвечает без конверта {ok, result}; ключ тот же, что у v2
+async function toncenterV3(path: string): Promise<unknown> {
+  const response = await fetch(`${toncenterV3Base}/${path}`, {
+    headers: { ...(toncenterApiKey ? { 'x-api-key': toncenterApiKey } : {}) },
+    signal: AbortSignal.timeout(toncenterTimeoutMs),
+  });
+  if (!response.ok) {
+    throw Object.assign(new Error(`toncenter v3 HTTP ${response.status}`), {
+      statusCode: response.status === 429 ? 429 : 502,
+    });
+  }
+  return response.json();
+}
+
+interface V3JettonWallets {
+  jetton_wallets: Array<{ address: string; balance: string; jetton: string }>;
+  metadata: Record<
+    string,
+    { token_info?: Array<{ type: string; name?: string; symbol?: string; image?: string; extra?: { decimals?: string | number } }> }
+  >;
+}
+
+// Балансы джеттонов владельца (toncenter v3; v2 джеттоны не умеет)
+app.get<{ Params: { address: string } }>('/jettons/:address', async (request) => {
+  const data = (await toncenterV3(
+    `jetton/wallets?owner_address=${encodeURIComponent(request.params.address)}` +
+      '&limit=50&exclude_zero_balance=true',
+  )) as V3JettonWallets;
+  const jettons = data.jetton_wallets.map((w) => {
+    const info = data.metadata[w.jetton]?.token_info?.find((t) => t.type === 'jetton_masters');
+    const decimals = Number(info?.extra?.decimals ?? 9);
+    return {
+      jettonWallet: w.address,
+      jettonMaster: w.jetton,
+      balance: w.balance,
+      decimals: Number.isInteger(decimals) && decimals >= 0 && decimals <= 255 ? decimals : 9,
+      ...(info?.symbol ? { symbol: info.symbol } : {}),
+      ...(info?.name ? { name: info.name } : {}),
+    };
+  });
+  return { jettons };
+});
+
 // Досье адреса для анти-скам карточки: только публичные данные toncenter.
 // Возраст/счётчик считаем по последним 50 tx: если их ровно 50 — счётчик «50+»,
 // а firstSeen — лишь нижняя граница возраста (txCountCapped=true).

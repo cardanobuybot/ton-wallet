@@ -76,6 +76,12 @@ export interface BuildReportParams {
   recipientDeployed: boolean;
   /** Оценка комиссии из dry-run — используется в fallback-режиме */
   fallbackFee?: bigint;
+  /**
+   * Джеттон-перевод: прямой получатель сообщения — собственный jetton wallet
+   * (смарт-контракт), а недеплоенный человеческий получатель — норма.
+   * Подавляет шумовые CONTRACT_RECIPIENT и RECIPIENT_NOT_DEPLOYED.
+   */
+  jettonTransfer?: boolean;
 }
 
 /** Допуск на комиссии при сравнении «итоговый расход vs введённая сумма» */
@@ -171,7 +177,7 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
           message: `Действие «${a.description}» завершается ошибкой в симуляции.`,
         });
       }
-      if (a.recipientIsWallet === false) {
+      if (a.recipientIsWallet === false && params.jettonTransfer !== true) {
         warnings.push({
           severity: 'warn',
           code: 'CONTRACT_RECIPIENT',
@@ -197,7 +203,7 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
       message: 'Сумма больше половины баланса.',
     });
   }
-  if (!params.recipientDeployed) {
+  if (!params.recipientDeployed && params.jettonTransfer !== true) {
     warnings.push({
       severity: 'info',
       code: 'RECIPIENT_NOT_DEPLOYED',

@@ -122,4 +122,29 @@ describe('правила предупреждений', () => {
     expect(r.warnings.map((w) => w.code)).toContain('RECIPIENT_NOT_DEPLOYED');
     expect(r.verdict).toBe('ok');
   });
+
+  it('джеттон-перевод: CONTRACT_RECIPIENT и RECIPIENT_NOT_DEPLOYED подавлены', () => {
+    const mutated = structuredClone(okEvent) as {
+      actions: Array<{ TonTransfer: { recipient: { is_wallet: boolean } } }>;
+    };
+    mutated.actions[0]!.TonTransfer.recipient.is_wallet = false;
+    const r = buildSimulationReport({
+      ...base,
+      event: mutated,
+      recipientDeployed: false,
+      jettonTransfer: true,
+    });
+    const codes = r.warnings.map((w) => w.code);
+    expect(codes).not.toContain('CONTRACT_RECIPIENT');
+    expect(codes).not.toContain('RECIPIENT_NOT_DEPLOYED');
+  });
+
+  it('джеттон-перевод не подавляет danger-правила', () => {
+    const mutated = structuredClone(okEvent) as {
+      actions: Array<{ TonTransfer: { recipient: { is_scam: boolean } } }>;
+    };
+    mutated.actions[0]!.TonTransfer.recipient.is_scam = true;
+    const r = buildSimulationReport({ ...base, event: mutated, jettonTransfer: true });
+    expect(r.verdict).toBe('danger');
+  });
 });

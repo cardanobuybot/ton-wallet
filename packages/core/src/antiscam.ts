@@ -80,9 +80,9 @@ export function analyzeRecipient(params: AnalyzeRecipientParams): SimulationWarn
     const known = counterparties.some((cp) => cp.raw === params.recipient.raw);
     if (!known) {
       warnings.push({
-        severity: 'warn',
+        severity: 'info',
         code: 'NEW_RECIPIENT',
-        message: 'Вы ещё не взаимодействовали с этим адресом. Проверьте его перед отправкой.',
+        message: 'Вы ещё не взаимодействовали с этим адресом.',
       });
     }
     if (!params.history.some((t) => t.direction === 'out' && t.counterparty)) {

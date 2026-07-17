@@ -810,6 +810,7 @@ function Dashboard(props: {
           enteredAmount: attached,
           recipientDeployed: recipientInfo.deployed,
           fallbackFee: BigInt(fee.totalFee),
+          jettonTransfer: selected !== undefined,
         }),
         // Анти-скам по локальной истории: address poisoning (danger) блокирует
         analyzeRecipient({

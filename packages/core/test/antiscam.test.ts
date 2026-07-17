@@ -59,9 +59,11 @@ describe('analyzeRecipient', () => {
     expect(warnings[0]!.severity).toBe('danger');
   });
 
-  it('пустая история → NEW_RECIPIENT (warn) + FIRST_TRANSFER (info)', () => {
-    const codes = analyzeRecipient({ recipient: known, history: [] }).map((w) => w.code);
-    expect(codes).toEqual(['NEW_RECIPIENT', 'FIRST_TRANSFER']);
+  it('пустая история → NEW_RECIPIENT (info) + FIRST_TRANSFER (info)', () => {
+    const warnings = analyzeRecipient({ recipient: known, history: [] });
+    expect(warnings.map((w) => w.code)).toEqual(['NEW_RECIPIENT', 'FIRST_TRANSFER']);
+    // Тихие подсказки, не warn: шум мешает пользователю (решение владельца, спринт 6)
+    expect(warnings.every((w) => w.severity === 'info')).toBe(true);
   });
 
   it('метка адресной книги снимает first-time предупреждения', () => {

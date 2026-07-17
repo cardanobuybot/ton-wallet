@@ -50,3 +50,93 @@ describe('parseTransactions', () => {
     expect(r[0]!.counterparty).toBeUndefined();
   });
 });
+
+// Реальные TEP-74 транзакции GTT (testnet, 2026-07-17): исходящий transfer
+// на свой jetton wallet, входящий transfer_notification, входящий excesses.
+const JETTON_OUT_TX = {
+  utime: 1784325984,
+  fee: '618099',
+  transaction_id: { lt: '83800925000001', hash: 'sZRnvgFBjXonobtllZvUv3FGb83a14PZ3DuSAq2ZJm0=' },
+  in_msg: {
+    source: '',
+    destination: 'EQA-j_8YN2Q84WswldYVUeIcYAzeNie-dWxHmik0HQsY3qjo',
+    value: '0',
+    msg_data: { '@type': 'msg.dataRaw' },
+  },
+  out_msgs: [
+    {
+      source: 'EQA-j_8YN2Q84WswldYVUeIcYAzeNie-dWxHmik0HQsY3qjo',
+      destination: 'EQANfves9Hc0S2wLyNPgwUr8ziCiOG3hAoqv16PJDIf3vvcC',
+      value: '50000000',
+      msg_data: {
+        '@type': 'msg.dataRaw',
+        body: 'te6cckEBAQEAWAAArA+KfqUAAAAAAAAAAFAlQL5ACAArFWkwEbPe2fjo1ejeA/49L6SAHOY7ey+TIdnOfH/NVwAPo//GDdkPOFrMJXWFVHiHGAM3jYnvnVsR5opNB0LGN4ICw8n4oA==',
+      },
+    },
+  ],
+};
+
+const JETTON_NOTIFICATION_TX = {
+  utime: 1784325988,
+  fee: '0',
+  transaction_id: { lt: '83800933000001', hash: 'pnsleJ0n94S9knpItk2p7CySSLwO6Dsl4D2viheZUUA=' },
+  in_msg: {
+    source: 'EQDjICdBwGwhJ9kxJIBpp1s8rXl22w_-4jRN22WmMex2W633',
+    destination: 'EQAVirSYCNnvbPx0avRvAf8el9JADnMdvZfJkOznPj_mqxbW',
+    value: '1',
+    msg_data: {
+      '@type': 'msg.dataRaw',
+      body: 'te6cckEBAQEANQAAZnNi0JwAAAAAAAAAAFAlQL5ACAB9H/4wbsh5wtZhK6wqo8Q4wBm8bE986tiPNFJoOhYxvCS4Zgk=',
+    },
+  },
+  out_msgs: [],
+};
+
+const EXCESSES_TX = {
+  utime: 1784325988,
+  fee: '51869',
+  transaction_id: { lt: '83800933000001', hash: '65DaeXIrWpaJ+MVrSqINuaXEZC51Hg/xLQ1TfddO3Jg=' },
+  in_msg: {
+    source: 'EQDjICdBwGwhJ9kxJIBpp1s8rXl22w_-4jRN22WmMex2W633',
+    destination: 'EQA-j_8YN2Q84WswldYVUeIcYAzeNie-dWxHmik0HQsY3qjo',
+    value: '27993058',
+    msg_data: { '@type': 'msg.dataRaw', body: 'te6cckEBAQEADgAAGNUydtsAAAAAAAAAAPfBmNw=' },
+  },
+  out_msgs: [],
+};
+
+describe('parseTransactions: TEP-74 джеттоны', () => {
+  it('исходящий jetton transfer: количество, человеческий получатель, jetton wallet', () => {
+    const [item] = parseTransactions([JETTON_OUT_TX], 'testnet');
+    expect(item!.direction).toBe('out');
+    expect(item!.jetton).toEqual({
+      amount: 10_000_000_000n, // 10 GTT
+      jettonWallet: '0:0d7ef7acf477344b6c0bc8d3e0c14afcce20a2386de1028aafd7a3c90c87f7be',
+    });
+    // counterparty — человек (v4r2-адрес), а не собственный jetton wallet
+    expect(item!.counterparty?.raw).toBe(
+      '0:158ab49808d9ef6cfc746af46f01ff1e97d2400e731dbd97c990ece73e3fe6ab',
+    );
+    expect(item!.counterparty?.friendly.startsWith('0Q')).toBe(true);
+    expect(item!.amount).toBe(50_000_000n); // прикреплённый TON-газ
+  });
+
+  it('входящий transfer_notification: количество и человеческий отправитель', () => {
+    const [item] = parseTransactions([JETTON_NOTIFICATION_TX], 'testnet');
+    expect(item!.direction).toBe('in');
+    expect(item!.jetton?.amount).toBe(10_000_000_000n);
+    expect(item!.jetton?.jettonWallet).toBe(
+      '0:e3202741c06c2127d931248069a75b3cad7976db0ffee2344ddb65a631ec765b',
+    );
+    // отправитель — владелец-человек (наш W5), не джеттон-кошелёк
+    expect(item!.counterparty?.raw).toBe(
+      '0:3e8fff1837643ce16b3095d61551e21c600cde3627be756c479a29341d0b18de',
+    );
+  });
+
+  it('excesses не считается джеттон-переводом', () => {
+    const [item] = parseTransactions([EXCESSES_TX], 'testnet');
+    expect(item!.jetton).toBeUndefined();
+    expect(item!.direction).toBe('in');
+  });
+});

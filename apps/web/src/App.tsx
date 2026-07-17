@@ -617,7 +617,12 @@ function History(props: {
   address: WalletAddress;
   reloadKey: number;
   labels: ReadonlyMap<string, string>;
+  jettons: JettonBalance[];
 }) {
+  // raw-адрес джеттон-кошелька → символ и decimals для человеческого отображения
+  const jettonByWallet = new Map(
+    props.jettons.map((j) => [j.jettonWallet.toLowerCase(), j] as const),
+  );
   const [items, setItems] = useState<TxHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -656,11 +661,17 @@ function History(props: {
       <legend>История</legend>
       {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
       {items.length === 0 && !loading && !error && <p>Транзакций пока нет.</p>}
-      {items.map((t) => (
+      {items.map((t) => {
+        const known = t.jetton ? jettonByWallet.get(t.jetton.jettonWallet.toLowerCase()) : undefined;
+        return (
         <p key={`${t.lt}:${t.hash}`} style={{ margin: '4px 0' }}>
           <span style={{ color: t.direction === 'in' ? 'green' : '#b00' }}>
             {t.direction === 'in' ? '+' : '−'}
-            {formatTonAmount(t.amount)} TON
+            {t.jetton
+              ? known
+                ? `${formatTokenAmount(t.jetton.amount, known.decimals)} ${known.symbol ?? known.name ?? 'JETTON'}`
+                : `${t.jetton.amount} ед. джеттона`
+              : `${formatTonAmount(t.amount)} TON`}
           </span>{' '}
           <small>
             {new Date(t.utime * 1000).toLocaleString()}{' '}
@@ -689,7 +700,8 @@ function History(props: {
             </>
           )}
         </p>
-      ))}
+        );
+      })}
       {loading && <p>Загрузка…</p>}
       {!loading && last && !exhausted && (
         <button onClick={() => load({ lt: last.lt, hash: last.hash })}>Ещё</button>
@@ -1035,6 +1047,7 @@ function Dashboard(props: {
         address={address}
         reloadKey={seqno}
         labels={new Map(book.map((e) => [e.raw, e.label]))}
+        jettons={jettons}
       />
     </>
   );

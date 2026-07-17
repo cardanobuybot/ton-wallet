@@ -58,6 +58,7 @@ export {
   parseTransactions,
   type TxCounterparty,
   type TxHistoryItem,
+  type TxJettonInfo,
 } from './history.ts';
 export {
   analyzeRecipient,

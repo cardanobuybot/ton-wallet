@@ -433,7 +433,8 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
     }
   }
 
-  const explorer = `https://testnet.tonviewer.com/${address.nonBounceable}`;
+  // tonscan: свой индексер, не отстаёт вместе с tonapi/tonviewer
+  const explorer = `https://testnet.tonscan.org/address/${address.nonBounceable}`;
 
   return (
     <>
@@ -446,7 +447,7 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
       </p>
       <p>
         <a href={explorer} target="_blank" rel="noreferrer">
-          Открыть в tonviewer (testnet)
+          Открыть в tonscan (testnet)
         </a>
       </p>
       <details>
@@ -514,7 +515,7 @@ function Dashboard(props: { session: Session; address: WalletAddress; onLock: ()
         <p style={{ color: 'green' }}>
           Отправлено и подтверждено (seqno вырос).{' '}
           <a href={explorer} target="_blank" rel="noreferrer">
-            Смотреть в tonviewer
+            Смотреть в tonscan
           </a>{' '}
           <button onClick={() => setSend({ step: 'idle' })}>Ок</button>
         </p>

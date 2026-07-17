@@ -59,6 +59,7 @@ type Screen =
   | { name: 'loading' }
   | { name: 'setup' }
   | { name: 'show-mnemonic'; mnemonic: string[] }
+  | { name: 'verify-mnemonic'; mnemonic: string[] }
   | { name: 'import' }
   | { name: 'choose-version'; mnemonic: string[] }
   | { name: 'password'; mnemonic: string[]; version: WalletVersion }
@@ -162,14 +163,18 @@ export function App() {
               <li key={i}>{w}</li>
             ))}
           </ol>
-          <button
-            onClick={() =>
-              setScreen({ name: 'password', mnemonic: screen.mnemonic, version: 'v5r1' })
-            }
-          >
+          <button onClick={() => setScreen({ name: 'verify-mnemonic', mnemonic: screen.mnemonic })}>
             Я записал — дальше
           </button>
         </>
+      )}
+
+      {screen.name === 'verify-mnemonic' && (
+        <MnemonicQuiz
+          mnemonic={screen.mnemonic}
+          onPass={() => setScreen({ name: 'password', mnemonic: screen.mnemonic, version: 'v5r1' })}
+          onBack={() => setScreen({ name: 'show-mnemonic', mnemonic: screen.mnemonic })}
+        />
       )}
 
       {screen.name === 'import' && (
@@ -274,6 +279,62 @@ function ImportForm(props: { onSubmit: (words: string[]) => void; onBack: () => 
           Импортировать
         </button>{' '}
         <button onClick={props.onBack}>Назад</button>
+      </p>
+    </>
+  );
+}
+
+// Три случайные позиции для проверки «действительно записал»
+function pickQuizPositions(count: number): number[] {
+  const buf = new Uint32Array(8);
+  crypto.getRandomValues(buf);
+  const positions = new Set<number>();
+  for (const v of buf) {
+    if (positions.size >= 3) break;
+    positions.add(v % count);
+  }
+  // Uint32Array(8) практически всегда даёт 3 разных; добираем детерминированно
+  for (let i = 0; positions.size < 3; i++) positions.add(i);
+  return [...positions].sort((a, b) => a - b);
+}
+
+function MnemonicQuiz(props: { mnemonic: string[]; onPass: () => void; onBack: () => void }) {
+  const [positions] = useState(() => pickQuizPositions(props.mnemonic.length));
+  const [answers, setAnswers] = useState<string[]>(['', '', '']);
+  const [wrong, setWrong] = useState(false);
+  return (
+    <>
+      <h2>Проверка мнемоники</h2>
+      <p>Введи слова с указанными номерами — так мы убедимся, что ты их записал.</p>
+      {positions.map((pos, i) => (
+        <p key={pos}>
+          Слово №{pos + 1}:{' '}
+          <input
+            value={answers[i]}
+            autoCapitalize="off"
+            autoComplete="off"
+            onChange={(e) => {
+              const next = [...answers];
+              next[i] = e.target.value;
+              setAnswers(next);
+            }}
+          />
+        </p>
+      ))}
+      {wrong && <p style={{ color: 'red' }}>Есть ошибки — сверься с записанной мнемоникой.</p>}
+      <p>
+        <button
+          onClick={() => {
+            const ok = positions.every(
+              (pos, i) => answers[i]!.trim().toLowerCase() === props.mnemonic[pos],
+            );
+            if (ok) props.onPass();
+            else setWrong(true);
+          }}
+        >
+          Проверить
+        </button>{' '}
+        <button onClick={props.onBack}>Назад к словам</button>
       </p>
     </>
   );

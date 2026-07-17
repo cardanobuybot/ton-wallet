@@ -15,7 +15,21 @@ export {
   type WalletContract,
   type WalletVersion,
 } from './wallet.ts';
-export { toNano, fromNano, parseTonAmount, formatTonAmount } from './money.ts';
+export {
+  toNano,
+  fromNano,
+  parseTonAmount,
+  formatTonAmount,
+  parseTokenAmount,
+  formatTokenAmount,
+} from './money.ts';
+export {
+  buildJettonTransferBody,
+  JETTON_FORWARD_TON,
+  JETTON_TRANSFER_ATTACHED_TON,
+  JETTON_TRANSFER_OPCODE,
+  type BuildJettonTransferBodyParams,
+} from './jetton.ts';
 export { parseRecipientAddress, formatAddress, type ParsedRecipient } from './address.ts';
 export {
   createTransfer,

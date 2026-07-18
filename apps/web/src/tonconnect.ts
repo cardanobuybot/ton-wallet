@@ -23,15 +23,26 @@ export async function fetchManifest(manifestUrl: string): Promise<DappManifest> 
   };
 }
 
-/** POST зашифрованного сообщения на мост от имени нашей сессии */
+// Мост отвечает 429 «too many push operations» при всплесках — без повторов
+// ответ кошелька молча теряется, а dApp зависает в ожидании.
+const RETRY_DELAYS_MS = [0, 3000, 10000, 30000];
+
+/** POST зашифрованного сообщения на мост от имени нашей сессии (с повторами на 429/5xx) */
 export async function postBridgeMessage(
   fromClientId: string,
   toClientId: string,
   encryptedBase64: string,
 ): Promise<void> {
   const url = `${BRIDGE_URL}/message?client_id=${encodeURIComponent(fromClientId)}&to=${encodeURIComponent(toClientId)}&ttl=${MESSAGE_TTL_SECONDS}`;
-  const res = await fetch(url, { method: 'POST', body: encryptedBase64 });
-  if (!res.ok) throw new Error(`Мост отверг сообщение (HTTP ${res.status})`);
+  let lastStatus = 0;
+  for (const delay of RETRY_DELAYS_MS) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    const res = await fetch(url, { method: 'POST', body: encryptedBase64 });
+    if (res.ok) return;
+    lastStatus = res.status;
+    if (res.status !== 429 && res.status < 500) break;
+  }
+  throw new Error(`Мост отверг сообщение (HTTP ${lastStatus})`);
 }
 
 export interface BridgeEvent {

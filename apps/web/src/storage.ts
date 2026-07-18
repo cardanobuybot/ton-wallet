@@ -1,20 +1,23 @@
 // В IndexedDB попадает ТОЛЬКО шифртекст-конверт (KeystoreEnvelope).
 // Расшифрованная мнемоника и ключи живут исключительно в памяти вкладки.
-import type { KeystoreEnvelope } from '@ton-wallet/core';
+import type { KeystoreEnvelope, TonConnectSession } from '@ton-wallet/core';
 
 const DB_NAME = 'ton-wallet';
 const STORE = 'keystore';
 const KEY = 'envelope';
 // Адресная книга: только метки и адреса (публичные данные), ключ — raw-адрес
 const BOOK_STORE = 'address-book';
+// TON Connect: сессии моста (x25519 сессионные ключи, НЕ ключи кошелька), ключ — client_id dApp
+const TC_STORE = 'tonconnect';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(BOOK_STORE)) db.createObjectStore(BOOK_STORE);
+      if (!db.objectStoreNames.contains(TC_STORE)) db.createObjectStore(TC_STORE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -111,4 +114,56 @@ export async function deleteAddressBookEntry(raw: string): Promise<void> {
   const db = await openDb();
   await request(db.transaction(BOOK_STORE, 'readwrite').objectStore(BOOK_STORE).delete(raw));
   db.close();
+}
+
+// ---------- TON Connect ----------
+
+export interface TonConnectConnection {
+  /** x25519-публичный ключ dApp (client_id на мосту) — ключ записи */
+  dAppClientId: string;
+  /** Сессионная NaCl-пара кошелька; это ключи транспорта моста, не средства */
+  session: TonConnectSession;
+  manifestUrl: string;
+  appName: string;
+  appUrl: string;
+  createdAt: number;
+}
+
+export async function listTonConnectConnections(): Promise<TonConnectConnection[]> {
+  const db = await openDb();
+  const result = await request(db.transaction(TC_STORE, 'readonly').objectStore(TC_STORE).getAll());
+  db.close();
+  return result as TonConnectConnection[];
+}
+
+export async function saveTonConnectConnection(conn: TonConnectConnection): Promise<void> {
+  const db = await openDb();
+  await request(
+    db.transaction(TC_STORE, 'readwrite').objectStore(TC_STORE).put(conn, conn.dAppClientId),
+  );
+  db.close();
+}
+
+export async function deleteTonConnectConnection(dAppClientId: string): Promise<void> {
+  const db = await openDb();
+  await request(db.transaction(TC_STORE, 'readwrite').objectStore(TC_STORE).delete(dAppClientId));
+  db.close();
+}
+
+// last_event_id моста — публичный курсор, храним рядом с walletVersion
+const TC_LAST_EVENT_KEY = 'tcLastEventId';
+
+export async function saveTcLastEventId(id: string): Promise<void> {
+  const db = await openDb();
+  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(id, TC_LAST_EVENT_KEY));
+  db.close();
+}
+
+export async function loadTcLastEventId(): Promise<string | null> {
+  const db = await openDb();
+  const result = await request(
+    db.transaction(STORE, 'readonly').objectStore(STORE).get(TC_LAST_EVENT_KEY),
+  );
+  db.close();
+  return (result as string | undefined) ?? null;
 }

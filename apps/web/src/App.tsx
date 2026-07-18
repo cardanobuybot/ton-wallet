@@ -3,8 +3,12 @@ import {
   analyzeRecipient,
   applyWarnings,
   buildJettonTransferBody,
+  buildSendTransactionError,
+  buildSendTransactionSuccess,
   buildSimulationReport,
+  createRawTransfer,
   createTransfer,
+  TONCONNECT_USER_DECLINED,
   detectFakeToken,
   formatTokenAmount,
   JETTON_TRANSFER_ATTACHED_TON,
@@ -43,6 +47,7 @@ import {
   type JettonBalance,
 } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
+import { TonConnectPanel, type DappTxRequest } from './TonConnectPanel.tsx';
 import {
   deleteAddressBookEntry,
   deleteEnvelope,
@@ -84,6 +89,8 @@ interface PendingSend {
   /** null — /address-intel недоступен (не блокирует отправку) */
   intel: AddressIntel | null;
   label?: string;
+  /** Запрос пришёл из TON Connect: после отправки/отмены отвечаем dApp через мост */
+  dapp?: DappTxRequest;
 }
 
 export function App() {
@@ -883,11 +890,118 @@ function Dashboard(props: {
     }
   }
 
+  // dApp может прислать friendly-адрес с mainnet-флагом (частая практика) — парсим лояльно
+  function parseDappAddress(input: string) {
+    try {
+      return parseRecipientAddress(input, NETWORK).address;
+    } catch {
+      return parseRecipientAddress(input, 'mainnet').address;
+    }
+  }
+
+  async function handleDappRequest(req: DappTxRequest) {
+    const declined = (message: string) =>
+      req
+        .reply(
+          JSON.stringify(
+            buildSendTransactionError(req.request.id, TONCONNECT_USER_DECLINED, message),
+          ),
+        )
+        .catch(() => {});
+    if (send.step !== 'idle' && send.step !== 'done') {
+      void declined('Кошелёк занят другой операцией');
+      return;
+    }
+    setError(null);
+    setSend({ step: 'preparing' });
+    try {
+      const msgs = req.request.messages;
+      const total = msgs.reduce((sum, m) => sum + m.amount, 0n);
+      const firstAddr = parseDappAddress(msgs[0]!.address);
+      const recipientCp: TxCounterparty = {
+        raw: firstAddr.toRawString(),
+        friendly: formatAddress(firstAddr, NETWORK),
+      };
+      const [own, recipientInfo, intel, ownHistory] = await Promise.all([
+        refresh(),
+        getAccount(recipientCp.raw).catch(() => null),
+        getAddressIntel(recipientCp.raw).catch(() => null),
+        getTransactions(address.nonBounceable)
+          .then((r) => parseTransactions(r.transactions, NETWORK))
+          .catch(() => [] as TxHistoryItem[]),
+      ]);
+      const transfer = createRawTransfer({
+        keyPair: session.keyPair,
+        version,
+        network: NETWORK,
+        seqno: own.seqno,
+        messages: msgs,
+        ...(req.request.validUntil !== undefined ? { validUntil: req.request.validUntil } : {}),
+      });
+      const fee = await estimateFee({
+        address: address.nonBounceable,
+        body: transfer.bodyBocBase64,
+        ...(transfer.initCodeBocBase64
+          ? { initCode: transfer.initCodeBocBase64, initData: transfer.initDataBocBase64! }
+          : {}),
+      });
+      const emu = await emulate(transfer.bocBase64, address.raw).catch(() => null);
+      const emulatorOutdated =
+        emu?.rejected === true &&
+        emu.emulatorBalance !== undefined &&
+        BigInt(emu.emulatorBalance) < BigInt(own.balance);
+      const label = book.find((e) => e.raw === recipientCp.raw)?.label;
+      const report = applyWarnings(
+        buildSimulationReport({
+          event: emu?.ok ? (emu.event ?? null) : null,
+          ...(emu?.rejected && emu.error ? { rejectionError: emu.error } : {}),
+          emulatorOutdated,
+          ownAddressRaw: address.raw,
+          balance: BigInt(own.balance),
+          enteredAmount: total,
+          recipientDeployed: recipientInfo?.deployed ?? false,
+          fallbackFee: BigInt(fee.totalFee),
+        }),
+        analyzeRecipient({
+          recipient: recipientCp,
+          history: ownHistory,
+          recipientLabeled: label !== undefined,
+        }),
+      );
+      setSend({
+        step: 'confirm',
+        pending: {
+          amount: total,
+          displayAmount: `${formatTonAmount(total)} TON (сообщений: ${msgs.length})`,
+          comment: '',
+          fee: BigInt(fee.totalFee),
+          boc: transfer.bocBase64,
+          seqnoBefore: own.seqno,
+          report,
+          recipient: recipientCp,
+          intel,
+          ...(label !== undefined ? { label } : {}),
+          dapp: req,
+        },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSend({ step: 'idle' });
+      void declined('Кошелёк не смог обработать запрос');
+    }
+  }
+
   async function confirmSend(pending: PendingSend) {
     setError(null);
     setSend({ step: 'sending', pending });
     try {
       await sendBoc(pending.boc);
+      // dApp ждёт подписанный BOC сразу после отправки, не после подтверждения сетью
+      if (pending.dapp) {
+        void pending.dapp
+          .reply(JSON.stringify(buildSendTransactionSuccess(pending.dapp.request.id, pending.boc)))
+          .catch(() => {});
+      }
       setSend({ step: 'waiting', pending });
       // Подтверждение — по инкременту seqno (см. transfer.ts о безопасности повтора)
       for (let i = 0; i < 40; i++) {
@@ -1009,6 +1123,14 @@ function Dashboard(props: {
       {(send.step === 'confirm' || send.step === 'sending' || send.step === 'waiting') && (
         <fieldset disabled={send.step !== 'confirm'}>
           <legend>Подтверждение</legend>
+          {send.pending.dapp && (
+            <p style={{ background: '#eef', padding: 4 }}>
+              Запрос от dApp: <b>{send.pending.dapp.connection.appName}</b>{' '}
+              <small style={{ wordBreak: 'break-all' }}>
+                ({send.pending.dapp.connection.appUrl})
+              </small>
+            </p>
+          )}
           <p style={{ wordBreak: 'break-all' }}>Кому: {send.pending.recipient.friendly}</p>
           <p>Сумма: {send.pending.displayAmount}</p>
           {send.pending.comment && <p>Комментарий: {send.pending.comment}</p>}
@@ -1027,7 +1149,27 @@ function Dashboard(props: {
                 ? 'Ждём подтверждения (seqno)…'
                 : 'Подтвердить и отправить'}
           </button>{' '}
-          <button onClick={() => setSend({ step: 'idle' })}>Отмена</button>
+          <button
+            onClick={() => {
+              const dapp = send.pending.dapp;
+              if (dapp) {
+                void dapp
+                  .reply(
+                    JSON.stringify(
+                      buildSendTransactionError(
+                        dapp.request.id,
+                        TONCONNECT_USER_DECLINED,
+                        'Пользователь отклонил',
+                      ),
+                    ),
+                  )
+                  .catch(() => {});
+              }
+              setSend({ step: 'idle' });
+            }}
+          >
+            Отмена
+          </button>
         </fieldset>
       )}
 
@@ -1040,6 +1182,12 @@ function Dashboard(props: {
           <button onClick={() => setSend({ step: 'idle' })}>Ок</button>
         </p>
       )}
+
+      <TonConnectPanel
+        session={session}
+        version={version}
+        onTxRequest={(req) => void handleDappRequest(req)}
+      />
 
       <AddressBook book={book} onChange={reloadBook} />
 

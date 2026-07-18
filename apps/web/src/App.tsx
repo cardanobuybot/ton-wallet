@@ -53,6 +53,10 @@ import { TonConnectPanel, type DappTxRequest } from './TonConnectPanel.tsx';
 import { ProfilePage, consumeSendPrefill } from './ProfilePage.tsx';
 import { profileHref, useRoute } from './router.ts';
 import { signSocialProof } from './social.ts';
+import { AddressChip } from './ui/AddressChip.tsx';
+import { BottomSheet } from './ui/BottomSheet.tsx';
+import { useToast } from './ui/Toast.tsx';
+import { IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
 import {
   deleteAddressBookEntry,
   deleteEnvelope,
@@ -798,56 +802,67 @@ function History(props: {
   const last = items[items.length - 1];
 
   return (
-    <fieldset>
-      <legend>История</legend>
+    <section className="card">
+      <h3 className="card-title">История</h3>
       {error && <p className="severity-danger">Ошибка: {error}</p>}
-      {items.length === 0 && !loading && !error && <p>Транзакций пока нет.</p>}
+      {items.length === 0 && !loading && !error && <p style={{ color: 'var(--muted)' }}>Транзакций пока нет.</p>}
       {items.map((t) => {
         const known = t.jetton ? jettonByWallet.get(t.jetton.jettonWallet.toLowerCase()) : undefined;
+        const amountText = t.jetton
+          ? known
+            ? `${formatTokenAmount(t.jetton.amount, known.decimals)} ${known.symbol ?? known.name ?? 'JETTON'}`
+            : `${t.jetton.amount} ед.`
+          : `${formatTonAmount(t.amount)} TON`;
         return (
-        <p key={`${t.lt}:${t.hash}`} style={{ margin: '4px 0' }}>
-          <span className={t.direction === 'in' ? 'severity-success' : 'severity-danger'} style={{ fontWeight: 600 }}>
-            {t.direction === 'in' ? '+' : '−'}
-            {t.jetton
-              ? known
-                ? `${formatTokenAmount(t.jetton.amount, known.decimals)} ${known.symbol ?? known.name ?? 'JETTON'}`
-                : `${t.jetton.amount} ед. джеттона`
-              : `${formatTonAmount(t.amount)} TON`}
-          </span>{' '}
-          <small>
-            {new Date(t.utime * 1000).toLocaleString()}{' '}
-            <a
-              href={`https://testnet.tonscan.org/tx/${txHashHex(t.hash)}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              tx
-            </a>
-          </small>
-          <br />
-          {t.counterparty && (
-            <small style={{ wordBreak: 'break-all' }}>
-              {t.direction === 'in' ? 'от' : 'кому'}:{' '}
-              {props.labels.has(t.counterparty.raw) && (
-                <b className="severity-success">«{props.labels.get(t.counterparty.raw)}» </b>
+          <div key={`${t.lt}:${t.hash}`} className="tx-row">
+            <div className={`tx-dir ${t.direction}`}>{t.direction === 'in' ? '↓' : '↑'}</div>
+            <div className="tx-main">
+              <div className="tx-verb">
+                {t.direction === 'in' ? 'Получено' : 'Отправлено'}
+              </div>
+              {t.counterparty && (
+                <div className="tx-cp">
+                  {props.labels.has(t.counterparty.raw) ? (
+                    <b className="severity-success">«{props.labels.get(t.counterparty.raw)}»</b>
+                  ) : (
+                    <a href={profileHref(t.counterparty.raw)}>
+                      {t.counterparty.friendly.slice(0, 6)}…{t.counterparty.friendly.slice(-4)}
+                    </a>
+                  )}
+                </div>
               )}
-              {t.counterparty.friendly}
-            </small>
-          )}
-          {t.comment && (
-            <>
-              <br />
-              <small>«{t.comment}»</small>
-            </>
-          )}
-        </p>
+              {t.comment && <span className="tx-comment">«{t.comment}»</span>}
+            </div>
+            <div className="tx-right">
+              <div className={`tx-amt ${t.direction}`}>
+                {t.direction === 'in' ? '+' : '−'}
+                {amountText}
+              </div>
+              <div className="tx-time">
+                {new Date(t.utime * 1000).toLocaleString()}{' '}
+                <a
+                  href={`https://testnet.tonscan.org/tx/${txHashHex(t.hash)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  tx
+                </a>
+              </div>
+            </div>
+          </div>
         );
       })}
-      {loading && <p>Загрузка…</p>}
+      {loading && <p style={{ color: 'var(--muted)' }}>Загрузка…</p>}
       {!loading && last && !exhausted && (
-        <button onClick={() => load({ lt: last.lt, hash: last.hash })}>Ещё</button>
+        <button
+          type="button"
+          onClick={() => load({ lt: last.lt, hash: last.hash })}
+          style={{ marginTop: 8 }}
+        >
+          Ещё
+        </button>
       )}
-    </fieldset>
+    </section>
   );
 }
 
@@ -1174,209 +1189,510 @@ function Dashboard(props: {
   const explorer = `https://testnet.tonscan.org/address/${address.nonBounceable}`;
 
   return (
+    <DashboardView
+      session={session}
+      address={address}
+      version={version}
+      balance={balance}
+      seqno={seqno}
+      jettons={jettons}
+      book={book}
+      favorites={favorites}
+      asset={asset}
+      setAsset={setAsset}
+      to={to}
+      setTo={setTo}
+      amount={amount}
+      setAmount={setAmount}
+      comment={comment}
+      setComment={setComment}
+      send={send}
+      setSend={setSend}
+      error={error}
+      setError={setError}
+      prepare={prepare}
+      confirmSend={confirmSend}
+      refresh={refresh}
+      onLock={props.onLock}
+      onDappRequest={handleDappRequest}
+      reloadBook={reloadBook}
+      reloadFavorites={reloadFavorites}
+      explorer={explorer}
+    />
+  );
+}
+
+interface DashboardViewProps {
+  session: Session;
+  address: WalletAddress;
+  version: WalletVersion;
+  balance: bigint | null;
+  seqno: number;
+  jettons: JettonBalance[];
+  book: AddressBookEntry[];
+  favorites: FavoriteAddress[];
+  asset: string;
+  setAsset: (v: string) => void;
+  to: string;
+  setTo: (v: string) => void;
+  amount: string;
+  setAmount: (v: string) => void;
+  comment: string;
+  setComment: (v: string) => void;
+  send: SendState;
+  setSend: (s: SendState) => void;
+  error: string | null;
+  setError: (e: string | null) => void;
+  prepare: () => Promise<void>;
+  confirmSend: (p: PendingSend) => Promise<void>;
+  refresh: () => Promise<{ balance: string; deployed: boolean; seqno: number }>;
+  onLock: () => void;
+  onDappRequest: (req: DappTxRequest) => Promise<void>;
+  reloadBook: () => void;
+  reloadFavorites: () => void;
+  explorer: string;
+}
+
+function DashboardView(p: DashboardViewProps) {
+  const toast = useToast();
+  const [sendOpen, setSendOpen] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
+
+  // Открываем шторку отправки, если запустился confirm (в т.ч. по запросу от dApp).
+  useEffect(() => {
+    if (
+      p.send.step === 'preparing' ||
+      p.send.step === 'confirm' ||
+      p.send.step === 'sending' ||
+      p.send.step === 'waiting'
+    ) {
+      setSendOpen(true);
+    }
+    if (p.send.step === 'done') {
+      toast.push('success', 'Отправлено и подтверждено (seqno вырос)');
+      setSendOpen(false);
+      const t = setTimeout(() => p.setSend({ step: 'idle' }), 250);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [p.send.step, toast, p]);
+
+  // Ошибки из потока — тостом.
+  useEffect(() => {
+    if (p.error) {
+      toast.push('danger', p.error);
+      p.setError(null);
+    }
+  }, [p, toast]);
+
+  const openSend = (preselectAsset?: string) => {
+    if (preselectAsset) p.setAsset(preselectAsset);
+    setSendOpen(true);
+  };
+  const closeSend = () => {
+    if (p.send.step === 'idle' || p.send.step === 'done') setSendOpen(false);
+  };
+
+  const selectedJetton = p.jettons.find((j) => j.jettonMaster === p.asset);
+
+  const setMax = () => {
+    if (p.asset === 'TON' && p.balance !== null) {
+      // Оставляем небольшой запас на комиссию — 0.01 TON.
+      const reserve = 10_000_000n;
+      const max = p.balance > reserve ? p.balance - reserve : 0n;
+      p.setAmount(formatTonAmount(max));
+    } else if (selectedJetton) {
+      p.setAmount(formatTokenAmount(BigInt(selectedJetton.balance), selectedJetton.decimals));
+    }
+  };
+
+  return (
     <>
-      <fieldset>
-        <legend>Кошелёк</legend>
-        <p style={{ margin: 0 }}>
-          <small>testnet · {version}</small>
-        </p>
-        <p className="balance" style={{ margin: '6px 0' }}>
-          {balance === null ? '…' : `${formatTonAmount(balance)} TON`}
-        </p>
-        <p style={{ margin: '4px 0', wordBreak: 'break-all' }}>
-          <small>{address.nonBounceable}</small>
-        </p>
-        <p style={{ margin: '8px 0 0' }}>
-          <small>seqno {seqno}</small>{' '}
-          <button onClick={() => refresh().catch((e) => setError(String(e)))}>Обновить</button>{' '}
-          <button onClick={props.onLock}>Заблокировать</button>
-        </p>
-      </fieldset>
-      <p>
-        <a href={explorer} target="_blank" rel="noreferrer">
-          Открыть в tonscan (testnet)
-        </a>{' '}
-        <a href={profileHref(address.nonBounceable)}>Мой профиль</a>
-      </p>
-      <details>
-        <summary>Получить TON (QR)</summary>
-        <p>
-          <QrCode data={`ton://transfer/${address.nonBounceable}`} />
-        </p>
-        <p style={{ wordBreak: 'break-all' }}>
-          {address.nonBounceable}{' '}
-          <button
-            onClick={() =>
-              navigator.clipboard
-                .writeText(address.nonBounceable)
-                .catch((e) => setError(String(e)))
-            }
-          >
-            Скопировать адрес
-          </button>
-        </p>
-      </details>
-      {error && <p className="severity-danger">Ошибка: {error}</p>}
+      {/* Топбар */}
+      <div className="topbar">
+        <a
+          className="brand"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            window.location.hash = '';
+          }}
+        >
+          grampocket
+        </a>
+        <span className="pill pill-amber">testnet · {p.version}</span>
+      </div>
 
-      <UsernameCard session={session} address={address} version={version} />
-
-      {jettons.length > 0 && (
-        <fieldset>
-          <legend>Джеттоны</legend>
-          {jettons.map((j) => {
-            const fake = detectFakeToken({
-              symbol: j.symbol,
-              name: j.name,
-              masterRaw: j.jettonMaster,
-              network: NETWORK,
-            });
-            return (
-              <p key={j.jettonMaster} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
-                <b>{formatTokenAmount(BigInt(j.balance), j.decimals)}</b>{' '}
-                {j.symbol ?? j.name ?? 'без имени'}{' '}
-                <button onClick={() => setAsset(j.jettonMaster)}>Отправить</button>
-                {fake && (
-                  <>
-                    <br />
-                    <b className="severity-danger">⚠ {fake.message}</b>
-                  </>
-                )}
-                <br />
-                <small>master: {j.jettonMaster}</small>
-              </p>
-            );
-          })}
-        </fieldset>
-      )}
-
-      {(send.step === 'idle' || send.step === 'preparing') && (
-        <fieldset disabled={send.step === 'preparing'}>
-          <legend>Отправить</legend>
-          <p>
-            Актив:{' '}
-            <select value={asset} onChange={(e) => setAsset(e.target.value)}>
-              <option value="TON">TON</option>
-              {jettons.map((j) => (
-                <option key={j.jettonMaster} value={j.jettonMaster}>
-                  {j.symbol ?? j.name ?? j.jettonMaster.slice(0, 10)} (
-                  {formatTokenAmount(BigInt(j.balance), j.decimals)})
-                </option>
-              ))}
-            </select>
-          </p>
-          <p>
-            Кому (raw или friendly):{' '}
-            <input style={{ width: '100%' }} value={to} onChange={(e) => setTo(e.target.value)} />
-          </p>
-          <p>
-            Сумма: <input value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </p>
-          <p>
-            Комментарий:{' '}
-            <input value={comment} onChange={(e) => setComment(e.target.value)} maxLength={120} />
-          </p>
-          <button onClick={prepare}>
-            {send.step === 'preparing' ? 'Готовим…' : 'Продолжить'}
-          </button>
-        </fieldset>
-      )}
-
-      {(send.step === 'confirm' || send.step === 'sending' || send.step === 'waiting') && (
-        <fieldset disabled={send.step !== 'confirm'}>
-          <legend>Подтверждение</legend>
-          {send.pending.dapp && (
-            <p className="dapp-notice">
-              Запрос от dApp: <b>{send.pending.dapp.connection.appName}</b>{' '}
-              <small style={{ wordBreak: 'break-all' }}>
-                ({send.pending.dapp.connection.appUrl})
-              </small>
-            </p>
-          )}
-          <p style={{ wordBreak: 'break-all' }}>
-            Кому:{' '}
-            <a href={profileHref(send.pending.recipient.raw)}>
-              {send.pending.recipient.friendly}
-            </a>{' '}
-            <button
-              onClick={() => {
-                const r = send.pending.recipient;
-                void saveFavorite({
-                  raw: r.raw,
-                  friendly: r.friendly,
-                  addedAt: Date.now(),
-                }).then(reloadFavorites);
-              }}
-            >
-              ★ В избранное
-            </button>
-          </p>
-          <p>Сумма: {send.pending.displayAmount}</p>
-          {send.pending.comment && <p>Комментарий: {send.pending.comment}</p>}
-          <RecipientCard
-            intel={send.pending.intel}
-            {...(send.pending.label !== undefined ? { label: send.pending.label } : {})}
-          />
-          <SimulationView report={send.pending.report} />
-          <button
-            onClick={() => confirmSend(send.pending)}
-            disabled={send.pending.report.verdict === 'danger'}
-          >
-            {send.step === 'sending'
-              ? 'Отправляем…'
-              : send.step === 'waiting'
-                ? 'Ждём подтверждения (seqno)…'
-                : 'Подтвердить и отправить'}
-          </button>{' '}
-          <button
-            onClick={() => {
-              const dapp = send.pending.dapp;
-              if (dapp) {
-                void dapp
-                  .reply(
-                    JSON.stringify(
-                      buildSendTransactionError(
-                        dapp.request.id,
-                        TONCONNECT_USER_DECLINED,
-                        'Пользователь отклонил',
-                      ),
-                    ),
-                  )
-                  .catch(() => {});
-              }
-              setSend({ step: 'idle' });
-            }}
-          >
-            Отмена
-          </button>
-        </fieldset>
-      )}
-
-      {send.step === 'done' && (
-        <p className="severity-success">
-          Отправлено и подтверждено (seqno вырос).{' '}
-          <a href={explorer} target="_blank" rel="noreferrer">
-            Смотреть в tonscan
+      {/* Герой */}
+      <section className="hero">
+        <div className="balance-label">Баланс</div>
+        <HeroBalance nano={p.balance} />
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>
+          <AddressChip value={p.address.nonBounceable} />
+        </div>
+        <div className="hero-meta">
+          seqno {p.seqno} ·{' '}
+          <a href={p.explorer} target="_blank" rel="noreferrer">
+            открыть в tonscan
           </a>{' '}
-          <button onClick={() => setSend({ step: 'idle' })}>Ок</button>
-        </p>
-      )}
+          · <a href={profileHref(p.address.nonBounceable)}>мой профиль</a>
+        </div>
+      </section>
+
+      {/* Сетка действий */}
+      <div className="action-grid">
+        <button
+          type="button"
+          className="action-btn primary"
+          onClick={() => openSend()}
+          aria-label="Отправить"
+        >
+          <IconSend />
+          Отправить
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          onClick={() => setReceiveOpen(true)}
+          aria-label="Получить"
+        >
+          <IconReceive />
+          Получить
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          onClick={() => p.refresh().catch((e) => toast.push('danger', String(e)))}
+          aria-label="Обновить"
+        >
+          <IconRefresh />
+          Обновить
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          onClick={p.onLock}
+          aria-label="Заблокировать"
+        >
+          <IconLock />
+          Блок
+        </button>
+      </div>
+
+      {/* Активы */}
+      <section className="card">
+        <h3 className="card-title">Активы</h3>
+        <AssetRow
+          icon="ton"
+          name="TON"
+          sub="Toncoin"
+          amount={p.balance === null ? '…' : formatTonAmount(p.balance)}
+          unit="TON"
+          onClick={() => openSend('TON')}
+        />
+        {p.jettons.map((j) => {
+          const fake = detectFakeToken({
+            symbol: j.symbol,
+            name: j.name,
+            masterRaw: j.jettonMaster,
+            network: NETWORK,
+          });
+          const sym = j.symbol ?? j.name ?? 'JETTON';
+          return (
+            <AssetRow
+              key={j.jettonMaster}
+              icon={sym.slice(0, 2).toUpperCase()}
+              name={sym}
+              sub={`${j.jettonMaster.slice(0, 6)}…${j.jettonMaster.slice(-4)}`}
+              amount={formatTokenAmount(BigInt(j.balance), j.decimals)}
+              unit={sym}
+              {...(fake?.message ? { warn: fake.message } : {})}
+              onClick={() => openSend(j.jettonMaster)}
+            />
+          );
+        })}
+      </section>
+
+      {/* Сервисы: свободный стек карточек */}
+      <UsernameCard session={p.session} address={p.address} version={p.version} />
 
       <TonConnectPanel
-        session={session}
-        version={version}
-        onTxRequest={(req) => void handleDappRequest(req)}
+        session={p.session}
+        version={p.version}
+        onTxRequest={(req) => void p.onDappRequest(req)}
       />
 
-      <AddressBook book={book} onChange={reloadBook} />
+      <AddressBook book={p.book} onChange={p.reloadBook} />
 
-      <Favorites items={favorites} onChange={reloadFavorites} />
+      <Favorites items={p.favorites} onChange={p.reloadFavorites} />
 
+      {/* История */}
       <History
-        address={address}
-        reloadKey={seqno}
-        labels={new Map(book.map((e) => [e.raw, e.label]))}
-        jettons={jettons}
+        address={p.address}
+        reloadKey={p.seqno}
+        labels={new Map(p.book.map((e) => [e.raw, e.label]))}
+        jettons={p.jettons}
       />
+
+      {/* Шторка «Получить» */}
+      <BottomSheet open={receiveOpen} onClose={() => setReceiveOpen(false)} title="Получить">
+        <p style={{ margin: '4px 0 12px', color: 'var(--muted)' }}>
+          Отсканируй QR или скопируй адрес — придёт в этот кошелёк.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0' }}>
+          <QrCode data={`ton://transfer/${p.address.nonBounceable}`} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+          <AddressChip value={p.address.nonBounceable} />
+        </div>
+      </BottomSheet>
+
+      {/* Шторка «Отправить»: одна и та же для формы и подтверждения */}
+      <BottomSheet
+        open={sendOpen}
+        onClose={closeSend}
+        title={
+          p.send.step === 'confirm' || p.send.step === 'sending' || p.send.step === 'waiting'
+            ? 'Подтверждение'
+            : 'Отправить'
+        }
+      >
+        {(p.send.step === 'idle' || p.send.step === 'preparing') && (
+          <fieldset disabled={p.send.step === 'preparing'} style={{ border: 0, padding: 0, margin: 0 }}>
+            <p style={{ margin: '0 0 6px' }}>
+              <label htmlFor="asset">
+                <small>Актив</small>
+              </label>
+              <br />
+              <select
+                id="asset"
+                value={p.asset}
+                onChange={(e) => p.setAsset(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="TON">TON</option>
+                {p.jettons.map((j) => (
+                  <option key={j.jettonMaster} value={j.jettonMaster}>
+                    {j.symbol ?? j.name ?? j.jettonMaster.slice(0, 10)} (
+                    {formatTokenAmount(BigInt(j.balance), j.decimals)})
+                  </option>
+                ))}
+              </select>
+            </p>
+            <p style={{ margin: '8px 0 6px' }}>
+              <label htmlFor="to">
+                <small>Кому (raw или friendly)</small>
+              </label>
+              <br />
+              <input
+                id="to"
+                value={p.to}
+                onChange={(e) => p.setTo(e.target.value)}
+                autoCapitalize="off"
+                autoComplete="off"
+                spellCheck={false}
+                className="mono"
+              />
+            </p>
+            <p style={{ margin: '8px 0 6px' }}>
+              <label htmlFor="amount">
+                <small>Сумма</small>
+              </label>
+              <br />
+              <span style={{ display: 'flex', gap: 8 }}>
+                <input
+                  id="amount"
+                  value={p.amount}
+                  onChange={(e) => p.setAmount(e.target.value)}
+                  inputMode="decimal"
+                  className="mono"
+                />
+                <button type="button" onClick={setMax}>
+                  MAX
+                </button>
+              </span>
+            </p>
+            <p style={{ margin: '8px 0 12px' }}>
+              <label htmlFor="comment">
+                <small>Комментарий</small>
+              </label>
+              <br />
+              <input
+                id="comment"
+                value={p.comment}
+                onChange={(e) => p.setComment(e.target.value)}
+                maxLength={120}
+              />
+            </p>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ width: '100%' }}
+              onClick={() => void p.prepare()}
+            >
+              {p.send.step === 'preparing' ? 'Готовим…' : 'Продолжить'}
+            </button>
+          </fieldset>
+        )}
+
+        {(() => {
+          const s = p.send;
+          if (s.step !== 'confirm' && s.step !== 'sending' && s.step !== 'waiting') return null;
+          const pending = s.pending;
+          const step = s.step;
+          return (
+            <fieldset
+              disabled={step !== 'confirm'}
+              style={{ border: 0, padding: 0, margin: 0 }}
+            >
+              {pending.dapp && (
+                <p className="dapp-notice">
+                  Запрос от dApp: <b>{pending.dapp.connection.appName}</b>{' '}
+                  <small style={{ wordBreak: 'break-all' }}>
+                    ({pending.dapp.connection.appUrl})
+                  </small>
+                </p>
+              )}
+              <p style={{ wordBreak: 'break-all', margin: '10px 0 6px' }}>
+                <small>Кому</small>
+                <br />
+                <a href={profileHref(pending.recipient.raw)}>{pending.recipient.friendly}</a>{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const r = pending.recipient;
+                    void saveFavorite({
+                      raw: r.raw,
+                      friendly: r.friendly,
+                      addedAt: Date.now(),
+                    }).then(() => {
+                      p.reloadFavorites();
+                      toast.push('success', 'Добавлено в избранное');
+                    });
+                  }}
+                >
+                  ★ В избранное
+                </button>
+              </p>
+              <p style={{ margin: '10px 0 6px' }}>
+                <small>Сумма</small>
+                <br />
+                <b>{pending.displayAmount}</b>
+              </p>
+              {pending.comment && (
+                <p style={{ margin: '10px 0 6px' }}>
+                  <small>Комментарий</small>
+                  <br />
+                  {pending.comment}
+                </p>
+              )}
+              <RecipientCard
+                intel={pending.intel}
+                {...(pending.label !== undefined ? { label: pending.label } : {})}
+              />
+              <SimulationView report={pending.report} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const dapp = pending.dapp;
+                    if (dapp) {
+                      void dapp
+                        .reply(
+                          JSON.stringify(
+                            buildSendTransactionError(
+                              dapp.request.id,
+                              TONCONNECT_USER_DECLINED,
+                              'Пользователь отклонил',
+                            ),
+                          ),
+                        )
+                        .catch(() => {});
+                    }
+                    p.setSend({ step: 'idle' });
+                    setSendOpen(false);
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => void p.confirmSend(pending)}
+                  disabled={step !== 'confirm' || pending.report.verdict === 'danger'}
+                  style={{ flex: 2 }}
+                >
+                  {step === 'sending'
+                    ? 'Отправляем…'
+                    : step === 'waiting'
+                      ? 'Ждём seqno…'
+                      : 'Подтвердить'}
+                </button>
+              </div>
+            </fieldset>
+          );
+        })()}
+      </BottomSheet>
     </>
+  );
+}
+
+function HeroBalance(props: { nano: bigint | null }) {
+  if (props.nano === null) return <div className="balance">…</div>;
+  const str = formatTonAmount(props.nano);
+  const dot = str.indexOf('.');
+  const intPart = dot < 0 ? str : str.slice(0, dot);
+  const frac = dot < 0 ? '' : str.slice(dot);
+  return (
+    <div className="balance">
+      {intPart}
+      {frac && <span className="balance-frac">{frac}</span>}
+      <span className="balance-unit">TON</span>
+    </div>
+  );
+}
+
+function AssetRow(props: {
+  icon: string;
+  name: string;
+  sub: string;
+  amount: string;
+  unit: string;
+  warn?: string;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className="asset-row"
+      onClick={props.onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          props.onClick();
+        }
+      }}
+    >
+      <div className={`asset-icon${props.icon === 'ton' ? ' ton' : ''}`}>
+        {props.icon === 'ton' ? '◆' : props.icon}
+      </div>
+      <div className="asset-main">
+        <div className="asset-name">
+          {props.name}
+          {props.warn && (
+            <span className="severity-danger" style={{ marginLeft: 8, fontSize: '0.78rem' }}>
+              ⚠ {props.warn}
+            </span>
+          )}
+        </div>
+        <div className="asset-sub">{props.sub}</div>
+      </div>
+      <div className="asset-amt">
+        {props.amount}
+        <small>{props.unit}</small>
+      </div>
+    </div>
   );
 }

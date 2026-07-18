@@ -202,7 +202,7 @@ export function TonConnectPanel(props: {
   return (
     <fieldset>
       <legend>TON Connect</legend>
-      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {error && <p className="severity-danger">Ошибка: {error}</p>}
 
       {pending === null ? (
         <p>

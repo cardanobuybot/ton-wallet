@@ -159,12 +159,12 @@ export function App() {
   }
 
   return (
-    <main style={{ fontFamily: 'monospace', maxWidth: 640, margin: '2rem auto', padding: 16 }}>
-      <p style={{ background: '#b00', color: '#fff', padding: 8, textAlign: 'center' }}>
+    <main>
+      <p className="dev-banner">
         <b>DEV ONLY — testnet.</b> Не использовать с реальными средствами.
       </p>
       <h1>ton-wallet</h1>
-      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {error && <p className="severity-danger">Ошибка: {error}</p>}
 
       {route.name === 'profile' && (
         <ProfilePage
@@ -291,7 +291,7 @@ export function App() {
       )}
 
       {route.name === 'home' && screen.name === 'wallet' && persisted === false && (
-        <p style={{ color: '#b36b00' }}>
+        <p className="severity-warn">
           Браузер может удалить локальные данные кошелька при нехватке места.{' '}
           <button onClick={() => void requestPersistentStorage().then(setPersisted)}>
             Защитить хранилище
@@ -370,7 +370,9 @@ function MnemonicQuiz(props: { mnemonic: string[]; onPass: () => void; onBack: (
           />
         </p>
       ))}
-      {wrong && <p style={{ color: 'red' }}>Есть ошибки — сверься с записанной мнемоникой.</p>}
+      {wrong && (
+        <p className="severity-danger">Есть ошибки — сверься с записанной мнемоникой.</p>
+      )}
       <p>
         <button
           onClick={() => {
@@ -557,7 +559,7 @@ function RecipientCard(props: { intel: AddressIntel | null; label?: string }) {
       <p style={{ margin: '0 0 4px' }}>
         <b>Получатель:</b>{' '}
         {label !== undefined ? (
-          <span style={{ color: 'green' }}>«{label}» (из адресной книги)</span>
+          <span className="severity-success">«{label}» (из адресной книги)</span>
         ) : (
           'нет в адресной книге'
         )}
@@ -591,7 +593,7 @@ function AddressBook(props: { book: AddressBookEntry[]; onChange: () => void }) 
   return (
     <details>
       <summary>Адресная книга ({props.book.length})</summary>
-      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {error && <p className="severity-danger">Ошибка: {error}</p>}
       {props.book.map((e) => (
         <p key={e.raw} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
           <b>{e.label}</b> — <small>{e.friendly}</small>{' '}
@@ -718,8 +720,8 @@ function UsernameCard(props: {
           </p>
         </>
       )}
-      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
-      {notice && <p style={{ color: 'green' }}>{notice}</p>}
+      {error && <p className="severity-danger">Ошибка: {error}</p>}
+      {notice && <p className="severity-success">{notice}</p>}
     </fieldset>
   );
 }
@@ -798,13 +800,13 @@ function History(props: {
   return (
     <fieldset>
       <legend>История</legend>
-      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {error && <p className="severity-danger">Ошибка: {error}</p>}
       {items.length === 0 && !loading && !error && <p>Транзакций пока нет.</p>}
       {items.map((t) => {
         const known = t.jetton ? jettonByWallet.get(t.jetton.jettonWallet.toLowerCase()) : undefined;
         return (
         <p key={`${t.lt}:${t.hash}`} style={{ margin: '4px 0' }}>
-          <span style={{ color: t.direction === 'in' ? 'green' : '#b00' }}>
+          <span className={t.direction === 'in' ? 'severity-success' : 'severity-danger'} style={{ fontWeight: 600 }}>
             {t.direction === 'in' ? '+' : '−'}
             {t.jetton
               ? known
@@ -827,7 +829,7 @@ function History(props: {
             <small style={{ wordBreak: 'break-all' }}>
               {t.direction === 'in' ? 'от' : 'кому'}:{' '}
               {props.labels.has(t.counterparty.raw) && (
-                <b style={{ color: 'green' }}>«{props.labels.get(t.counterparty.raw)}» </b>
+                <b className="severity-success">«{props.labels.get(t.counterparty.raw)}» </b>
               )}
               {t.counterparty.friendly}
             </small>
@@ -1173,13 +1175,23 @@ function Dashboard(props: {
 
   return (
     <>
-      <p>
-        Адрес (testnet, {version}): <b style={{ wordBreak: 'break-all' }}>{address.nonBounceable}</b>
-        <br />
-        Баланс: <b>{balance === null ? '…' : `${formatTonAmount(balance)} TON`}</b> (seqno {seqno}){' '}
-        <button onClick={() => refresh().catch((e) => setError(String(e)))}>Обновить</button>{' '}
-        <button onClick={props.onLock}>Заблокировать</button>
-      </p>
+      <fieldset>
+        <legend>Кошелёк</legend>
+        <p style={{ margin: 0 }}>
+          <small>testnet · {version}</small>
+        </p>
+        <p className="balance" style={{ margin: '6px 0' }}>
+          {balance === null ? '…' : `${formatTonAmount(balance)} TON`}
+        </p>
+        <p style={{ margin: '4px 0', wordBreak: 'break-all' }}>
+          <small>{address.nonBounceable}</small>
+        </p>
+        <p style={{ margin: '8px 0 0' }}>
+          <small>seqno {seqno}</small>{' '}
+          <button onClick={() => refresh().catch((e) => setError(String(e)))}>Обновить</button>{' '}
+          <button onClick={props.onLock}>Заблокировать</button>
+        </p>
+      </fieldset>
       <p>
         <a href={explorer} target="_blank" rel="noreferrer">
           Открыть в tonscan (testnet)
@@ -1204,7 +1216,7 @@ function Dashboard(props: {
           </button>
         </p>
       </details>
-      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {error && <p className="severity-danger">Ошибка: {error}</p>}
 
       <UsernameCard session={session} address={address} version={version} />
 
@@ -1226,7 +1238,7 @@ function Dashboard(props: {
                 {fake && (
                   <>
                     <br />
-                    <b style={{ color: 'red' }}>⚠ {fake.message}</b>
+                    <b className="severity-danger">⚠ {fake.message}</b>
                   </>
                 )}
                 <br />
@@ -1273,7 +1285,7 @@ function Dashboard(props: {
         <fieldset disabled={send.step !== 'confirm'}>
           <legend>Подтверждение</legend>
           {send.pending.dapp && (
-            <p style={{ background: '#eef', padding: 4 }}>
+            <p className="dapp-notice">
               Запрос от dApp: <b>{send.pending.dapp.connection.appName}</b>{' '}
               <small style={{ wordBreak: 'break-all' }}>
                 ({send.pending.dapp.connection.appUrl})
@@ -1340,7 +1352,7 @@ function Dashboard(props: {
       )}
 
       {send.step === 'done' && (
-        <p style={{ color: 'green' }}>
+        <p className="severity-success">
           Отправлено и подтверждено (seqno вырос).{' '}
           <a href={explorer} target="_blank" rel="noreferrer">
             Смотреть в tonscan

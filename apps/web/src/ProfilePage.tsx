@@ -210,7 +210,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
   if (error) {
     return (
       <>
-        <p style={{ color: 'red' }}>Ошибка: {error}</p>
+        <p className="severity-danger">Ошибка: {error}</p>
         <p>
           <button onClick={() => navigate({ name: 'home' })}>← В кошелёк</button>
         </p>
@@ -239,7 +239,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
           {social?.username ? (
             <>
               @{social.username}{' '}
-              <small style={{ color: '#666', fontWeight: 'normal' }}>
+              <small style={{ fontWeight: 'normal' }}>
                 ({label ?? shortAddr(friendly)})
               </small>
             </>
@@ -294,7 +294,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
         </p>
         {socialErr && (
           <p>
-            <small style={{ color: '#b36b00' }}>
+            <small className="severity-warn">
               Соц-данные недоступны: {socialErr}
             </small>
           </p>
@@ -314,8 +314,8 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
               {activity.txOut}); джеттонов: <b>{activity.jettonTxCount}</b>; уникальных
               контрагентов: <b>{activity.uniqueCounterparties}</b>
             </p>
-            <p style={{ color: 'green' }}>Получено TON: +{formatTonAmount(activity.tonIn)}</p>
-            <p style={{ color: '#b00' }}>Отправлено TON: −{formatTonAmount(activity.tonOut)}</p>
+            <p className="severity-success">Получено TON: +{formatTonAmount(activity.tonIn)}</p>
+            <p className="severity-danger">Отправлено TON: −{formatTonAmount(activity.tonOut)}</p>
             {activity.latestUtime !== null && (
               <p>
                 <small>
@@ -338,7 +338,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
             : undefined;
           return (
             <p key={`${t.lt}:${t.hash}`} style={{ margin: '4px 0' }}>
-              <span style={{ color: t.direction === 'in' ? 'green' : '#b00' }}>
+              <span className={t.direction === 'in' ? 'severity-success' : 'severity-danger'} style={{ fontWeight: 600 }}>
                 {t.direction === 'in' ? '+' : '−'}
                 {t.jetton
                   ? known
@@ -362,7 +362,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
                   <small style={{ wordBreak: 'break-all' }}>
                     {t.direction === 'in' ? 'от' : 'кому'}:{' '}
                     {labels.has(t.counterparty.raw) && (
-                      <b style={{ color: 'green' }}>«{labels.get(t.counterparty.raw)}» </b>
+                      <b className="severity-success">«{labels.get(t.counterparty.raw)}» </b>
                     )}
                     <a href={`#/u/${encodeURIComponent(t.counterparty.raw)}`}>
                       {t.counterparty.friendly}

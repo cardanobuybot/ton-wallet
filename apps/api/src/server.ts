@@ -1,6 +1,8 @@
 // ПРАВИЛО ПРОЕКТА: этот сервис никогда не касается приватных ключей,
 // мнемоник и подписи. Только публичные данные и уже подписанный BOC.
 import Fastify from 'fastify';
+import { runMigrations } from './db.ts';
+import { registerSocialRoutes } from './social.ts';
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '127.0.0.1';
@@ -220,6 +222,16 @@ app.post<{ Body: { boc: string } }>('/send-boc', async (request) => {
   await toncenter('sendBoc', { boc: request.body.boc });
   return { sent: true };
 });
+
+await registerSocialRoutes(app);
+
+// Миграции идемпотентны и очень маленькие; на старте это ок.
+// При отсутствии DATABASE_URL функция no-op — соц-эндпоинты вернут 503.
+try {
+  await runMigrations();
+} catch (err) {
+  app.log.error({ err }, 'db migration failed');
+}
 
 app.listen({ port, host }).catch((err) => {
   app.log.error(err);

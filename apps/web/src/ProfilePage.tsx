@@ -13,14 +13,27 @@ import {
   type ProfileActivity,
   type TxHistoryItem,
 } from '@ton-wallet/core';
-import { getAccount, getJettons, getTransactions, type JettonBalance } from './api.ts';
+import {
+  followAddress,
+  getAccount,
+  getAddressSocial,
+  getJettons,
+  getTransactions,
+  listFollowing,
+  unfollowAddress,
+  type AddressSocial,
+  type JettonBalance,
+} from './api.ts';
 import { navigate } from './router.ts';
+import type { Session } from './session.ts';
+import { signSocialProof } from './social.ts';
 import {
   deleteFavorite,
   isFavorite,
   listAddressBook,
   saveFavorite,
 } from './storage.ts';
+import type { WalletAddress, WalletVersion } from '@ton-wallet/core';
 
 const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
 const SEND_PREFILL_KEY = 'ton-wallet:sendPrefill';
@@ -42,7 +55,13 @@ function parseAnyAddress(input: string): Address {
   return Address.parseFriendly(trimmed).address;
 }
 
-export function ProfilePage(props: { addressInput: string }) {
+export interface ProfileViewer {
+  session: Session;
+  address: WalletAddress;
+  version: WalletVersion;
+}
+
+export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewer }) {
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState<Address | null>(null);
   const [account, setAccount] = useState<{ balance: bigint; deployed: boolean } | null>(null);
@@ -51,6 +70,10 @@ export function ProfilePage(props: { addressInput: string }) {
   const [labels, setLabels] = useState<Map<string, string>>(new Map());
   const [fav, setFav] = useState<{ label: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [social, setSocial] = useState<AddressSocial | null>(null);
+  const [socialErr, setSocialErr] = useState<string | null>(null);
+  const [following, setFollowing] = useState<boolean | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,10 +125,37 @@ export function ProfilePage(props: { addressInput: string }) {
       setLoading(false);
     });
 
+    // Соц-данные (@name + счётчики) — отдельно от блокчейн-данных: если
+    // apps/api без БД, эта ветка вернёт 503, а профиль всё равно откроется.
+    setSocial(null);
+    setSocialErr(null);
+    setFollowing(null);
+    getAddressSocial(raw)
+      .then((s) => {
+        if (!cancelled) setSocial(s);
+      })
+      .catch((e) => {
+        if (!cancelled) setSocialErr(e instanceof Error ? e.message : String(e));
+      });
+
+    // Проверяем, подписан ли viewer на этот адрес — простой список без пагинации:
+    // при первых сотнях подписок хватит; далее заведём /follows/is-following.
+    const viewerRaw = props.viewer?.address.raw ?? null;
+    if (viewerRaw && viewerRaw !== raw) {
+      listFollowing(viewerRaw)
+        .then((r) => {
+          if (cancelled) return;
+          setFollowing(r.items.some((i) => i.addressRaw === raw));
+        })
+        .catch(() => {
+          if (!cancelled) setFollowing(null);
+        });
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [props.addressInput]);
+  }, [props.addressInput, props.viewer?.address.raw]);
 
   const toggleFavorite = useCallback(async () => {
     if (!address) return;
@@ -128,6 +178,34 @@ export function ProfilePage(props: { addressInput: string }) {
     sessionStorage.setItem(SEND_PREFILL_KEY, formatAddress(address, 'testnet'));
     navigate({ name: 'home' });
   }, [address]);
+
+  const toggleFollow = useCallback(async () => {
+    if (!address || !props.viewer) return;
+    const raw = address.toRawString();
+    setFollowBusy(true);
+    setSocialErr(null);
+    try {
+      const now = following;
+      const body = {
+        ...signSocialProof(
+          props.viewer.session,
+          props.viewer.address,
+          props.viewer.version,
+          now ? `unfollow:${raw}` : `follow:${raw}`,
+        ),
+        target: raw,
+      };
+      if (now) await unfollowAddress(body);
+      else await followAddress(body);
+      setFollowing(!now);
+      const s = await getAddressSocial(raw);
+      setSocial(s);
+    } catch (e) {
+      setSocialErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFollowBusy(false);
+    }
+  }, [address, following, props.viewer]);
 
   if (error) {
     return (
@@ -157,10 +235,27 @@ export function ProfilePage(props: { addressInput: string }) {
 
       <fieldset>
         <legend>Профиль</legend>
-        <h2 style={{ margin: '4px 0' }}>{label ?? shortAddr(friendly)}</h2>
+        <h2 style={{ margin: '4px 0' }}>
+          {social?.username ? (
+            <>
+              @{social.username}{' '}
+              <small style={{ color: '#666', fontWeight: 'normal' }}>
+                ({label ?? shortAddr(friendly)})
+              </small>
+            </>
+          ) : (
+            (label ?? shortAddr(friendly))
+          )}
+        </h2>
         <p style={{ wordBreak: 'break-all' }}>
           <small>{friendly}</small>
         </p>
+        {social && (
+          <p>
+            <b>{social.followers}</b> подписчиков · подписан на{' '}
+            <b>{social.following}</b>
+          </p>
+        )}
         <p>
           {account
             ? `Баланс: ${formatTonAmount(account.balance)} TON${account.deployed ? '' : ' (контракт не задеплоен)'}`
@@ -172,6 +267,17 @@ export function ProfilePage(props: { addressInput: string }) {
           <button onClick={() => void toggleFavorite()}>
             {fav ? '★ В избранном (убрать)' : '☆ В избранное'}
           </button>{' '}
+          {props.viewer && props.viewer.address.raw !== raw && (
+            <button onClick={() => void toggleFollow()} disabled={followBusy || following === null}>
+              {followBusy
+                ? '…'
+                : following === null
+                  ? 'Проверка…'
+                  : following
+                    ? 'Отписаться'
+                    : 'Подписаться'}
+            </button>
+          )}{' '}
           <button onClick={sendHere}>Отправить сюда</button>{' '}
           <a
             href={`https://testnet.tonscan.org/address/${raw}`}
@@ -186,6 +292,13 @@ export function ProfilePage(props: { addressInput: string }) {
             Скопировать адрес
           </button>
         </p>
+        {socialErr && (
+          <p>
+            <small style={{ color: '#b36b00' }}>
+              Соц-данные недоступны: {socialErr}
+            </small>
+          </p>
+        )}
       </fieldset>
 
       <fieldset>

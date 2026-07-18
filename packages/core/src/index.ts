@@ -74,6 +74,7 @@ export {
   encryptBridgeMessage,
   parseAppRequest,
   parseTonConnectLink,
+  verifyTonProof,
   TONCONNECT_MAX_MESSAGES,
   TONCONNECT_PROTOCOL_VERSION,
   TONCONNECT_USER_DECLINED,
@@ -86,6 +87,7 @@ export {
   type TonConnectLink,
   type TonConnectSession,
   type TonProofReply,
+  type VerifyTonProofParams,
 } from './tonconnect.ts';
 export {
   analyzeRecipient,

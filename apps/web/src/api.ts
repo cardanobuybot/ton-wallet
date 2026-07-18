@@ -71,3 +71,48 @@ export const emulate = (boc: string, senderAddress: string) =>
     error?: string;
     emulatorBalance?: string;
   }>(`/emulate`, { boc, senderAddress });
+
+// ---------- Соц-эндпоинты (спринт 9) ----------
+
+/** Полезная нагрузка ton_proof для доказательства владения адресом. */
+export interface SocialAuthPayload {
+  address: string;
+  publicKeyHex: string;
+  walletVersion: string;
+  network: string;
+  timestamp: number;
+  signatureBase64: string;
+}
+
+export interface AddressSocial {
+  username: string | null;
+  followers: number;
+  following: number;
+}
+
+export const registerUsername = (body: SocialAuthPayload & { username: string }) =>
+  call<{ username: string; addressRaw: string }>(`/username/register`, body);
+
+export const resolveUsername = (name: string) =>
+  call<{ username: string; addressRaw: string }>(
+    `/username/${encodeURIComponent(name.replace(/^@/, ''))}`,
+  );
+
+export const getAddressSocial = (raw: string) =>
+  call<AddressSocial>(`/address/${encodeURIComponent(raw)}/social`);
+
+export const followAddress = (body: SocialAuthPayload & { target: string }) =>
+  call<{ ok: boolean }>(`/follows/register`, body);
+
+export const unfollowAddress = (body: SocialAuthPayload & { target: string }) =>
+  call<{ ok: boolean }>(`/follows/unregister`, body);
+
+export const listFollowing = (raw: string) =>
+  call<{ items: { addressRaw: string; username: string | null }[] }>(
+    `/follows/of/${encodeURIComponent(raw)}`,
+  );
+
+export const listFollowers = (raw: string) =>
+  call<{ items: { addressRaw: string; username: string | null }[] }>(
+    `/followers/${encodeURIComponent(raw)}`,
+  );

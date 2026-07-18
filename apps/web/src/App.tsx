@@ -40,8 +40,10 @@ import {
   estimateFee,
   getAccount,
   getAddressIntel,
+  getAddressSocial,
   getJettons,
   getTransactions,
+  registerUsername,
   sendBoc,
   type AddressIntel,
   type JettonBalance,
@@ -50,6 +52,7 @@ import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { TonConnectPanel, type DappTxRequest } from './TonConnectPanel.tsx';
 import { ProfilePage, consumeSendPrefill } from './ProfilePage.tsx';
 import { profileHref, useRoute } from './router.ts';
+import { signSocialProof } from './social.ts';
 import {
   deleteAddressBookEntry,
   deleteEnvelope,
@@ -163,7 +166,20 @@ export function App() {
       <h1>ton-wallet</h1>
       {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
 
-      {route.name === 'profile' && <ProfilePage addressInput={route.address} />}
+      {route.name === 'profile' && (
+        <ProfilePage
+          addressInput={route.address}
+          {...(screen.name === 'wallet'
+            ? {
+                viewer: {
+                  session: screen.session,
+                  address: screen.address,
+                  version: screen.version,
+                },
+              }
+            : {})}
+        />
+      )}
 
       {route.name === 'home' && screen.name === 'loading' && <p>Загрузка…</p>}
 
@@ -623,6 +639,88 @@ function AddressBook(props: { book: AddressBookEntry[]; onChange: () => void }) 
         </button>
       </p>
     </details>
+  );
+}
+
+function UsernameCard(props: {
+  session: Session;
+  address: WalletAddress;
+  version: WalletVersion;
+}) {
+  const [current, setCurrent] = useState<string | null>(null);
+  const [desired, setDesired] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    getAddressSocial(props.address.raw)
+      .then((s) => setCurrent(s.username))
+      .catch(() => {});
+  }, [props.address.raw]);
+  useEffect(reload, [reload]);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const clean = desired.trim().toLowerCase().replace(/^@/, '');
+      if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
+        throw new Error('Ник: 3–20 знаков, только a–z, 0–9, _');
+      }
+      const auth = signSocialProof(
+        props.session,
+        props.address,
+        props.version,
+        `register:@${clean}`,
+      );
+      const res = await registerUsername({ ...auth, username: clean });
+      setCurrent(res.username);
+      setDesired('');
+      setNotice(`Ник @${res.username} закреплён за твоим адресом`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <fieldset>
+      <legend>Твой @ник</legend>
+      {current ? (
+        <p>
+          <b>@{current}</b>{' '}
+          <small>
+            (закреплён за адресом; смена ника пока не поддерживается)
+          </small>
+        </p>
+      ) : (
+        <>
+          <p>
+            <small>
+              Занять уникальный ник, чтобы тебя находили и подписывались.
+              Один адрес — один ник.
+            </small>
+          </p>
+          <p>
+            @
+            <input
+              value={desired}
+              onChange={(e) => setDesired(e.target.value)}
+              maxLength={20}
+              placeholder="alice"
+            />{' '}
+            <button onClick={() => void submit()} disabled={busy || !desired.trim()}>
+              {busy ? 'Подписываем…' : 'Занять'}
+            </button>
+          </p>
+        </>
+      )}
+      {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+      {notice && <p style={{ color: 'green' }}>{notice}</p>}
+    </fieldset>
   );
 }
 
@@ -1107,6 +1205,8 @@ function Dashboard(props: {
         </p>
       </details>
       {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
+
+      <UsernameCard session={session} address={address} version={version} />
 
       {jettons.length > 0 && (
         <fieldset>

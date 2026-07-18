@@ -3,7 +3,7 @@
 // Спецификация: https://github.com/ton-blockchain/ton-connect
 import nacl from 'tweetnacl';
 import { Address, beginCell, storeStateInit } from '@ton/core';
-import { sha256_sync, sign } from '@ton/crypto';
+import { sha256_sync, sign, signVerify } from '@ton/crypto';
 import type { KeyPair } from '@ton/crypto';
 import { getWalletContract } from './wallet.ts';
 import type { Network, WalletVersion } from './wallet.ts';
@@ -203,6 +203,57 @@ export function buildTonProof(params: BuildTonProofParams): TonProofReply {
       payload: params.payload,
     },
   };
+}
+
+export interface VerifyTonProofParams {
+  /** raw или friendly адрес, которому принадлежит публичный ключ */
+  address: string;
+  /** hex 32B ed25519 публичного ключа кошелька, подписавшего proof */
+  publicKeyHex: string;
+  /** Домен, к которому привязан proof (напр. "grampocket.com") */
+  domain: string;
+  /** Payload, зашитый в proof (для нашего сервера — типа `register:@name`) */
+  payload: string;
+  /** timestamp из proof (unix-секунды) */
+  timestamp: number;
+  /** base64 подписи из proof */
+  signatureBase64: string;
+}
+
+/**
+ * Обратка к buildTonProof: собирает тот же message и проверяет подпись.
+ * НЕ проверяет ни срок годности timestamp, ни соответствие publicKey→address —
+ * это политика вызывающего кода (сервер сам решает окно и версию кошелька).
+ */
+export function verifyTonProof(params: VerifyTonProofParams): boolean {
+  const addr = Address.parse(params.address);
+  const publicKey = Buffer.from(params.publicKeyHex, 'hex');
+  if (publicKey.length !== 32) return false;
+  const signature = Buffer.from(params.signatureBase64, 'base64');
+  if (signature.length !== 64) return false;
+
+  const domainBytes = new TextEncoder().encode(params.domain);
+  const payloadBytes = new TextEncoder().encode(params.payload);
+  const wc = Buffer.alloc(4);
+  wc.writeInt32BE(addr.workChain);
+  const domainLen = Buffer.alloc(4);
+  domainLen.writeUInt32LE(domainBytes.length);
+  const ts = Buffer.alloc(8);
+  ts.writeBigUInt64LE(BigInt(params.timestamp));
+
+  const message = Buffer.concat([
+    Buffer.from('ton-proof-item-v2/'),
+    wc,
+    addr.hash,
+    domainLen,
+    domainBytes,
+    ts,
+    payloadBytes,
+  ]);
+  const toSign = sha256_sync(
+    Buffer.concat([Buffer.from([0xff, 0xff]), Buffer.from('ton-connect'), sha256_sync(message)]),
+  );
+  return signVerify(toSign, signature, publicKey);
 }
 
 // ---------- connect-событие ----------

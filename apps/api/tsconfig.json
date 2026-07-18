@@ -4,6 +4,7 @@
     "noEmit": true,
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "types": ["node"]
   },

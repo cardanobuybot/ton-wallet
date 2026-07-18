@@ -14,6 +14,7 @@ import {
   parseAppRequest,
   parseTonConnectLink,
   TONCONNECT_MAX_MESSAGES,
+  verifyTonProof,
 } from '../src/index.ts';
 import { EXPECTED_TESTNET, TEST_MNEMONIC } from './fixtures.ts';
 
@@ -136,6 +137,93 @@ describe('buildTonProof', () => {
     );
     const ok = signVerify(toSign, Buffer.from(reply.proof.signature, 'base64'), keyPair.publicKey);
     expect(ok).toBe(true);
+  });
+});
+
+describe('verifyTonProof', () => {
+  it('принимает валидный proof, собранный buildTonProof', async () => {
+    const keyPair = await mnemonicToKeyPair(TEST_MNEMONIC);
+    const timestamp = 1_752_700_000;
+    const reply = buildTonProof({
+      keyPair,
+      address: EXPECTED_TESTNET.raw,
+      domain: 'grampocket.com',
+      payload: 'register:@alice',
+      timestamp,
+    });
+    const ok = verifyTonProof({
+      address: EXPECTED_TESTNET.raw,
+      publicKeyHex: keyPair.publicKey.toString('hex'),
+      domain: 'grampocket.com',
+      payload: 'register:@alice',
+      timestamp,
+      signatureBase64: reply.proof.signature,
+    });
+    expect(ok).toBe(true);
+  });
+
+  it('режет подпись, собранную для другого домена/payload/адреса/timestamp/pubkey', async () => {
+    const keyPair = await mnemonicToKeyPair(TEST_MNEMONIC);
+    const timestamp = 1_752_700_000;
+    const good = buildTonProof({
+      keyPair,
+      address: EXPECTED_TESTNET.raw,
+      domain: 'grampocket.com',
+      payload: 'p',
+      timestamp,
+    });
+    const base = {
+      address: EXPECTED_TESTNET.raw,
+      publicKeyHex: keyPair.publicKey.toString('hex'),
+      domain: 'grampocket.com',
+      payload: 'p',
+      timestamp,
+      signatureBase64: good.proof.signature,
+    } as const;
+    expect(verifyTonProof({ ...base, domain: 'evil.com' })).toBe(false);
+    expect(verifyTonProof({ ...base, payload: 'q' })).toBe(false);
+    expect(verifyTonProof({ ...base, timestamp: timestamp + 1 })).toBe(false);
+    // Другой адрес → другой addr.hash → подпись не сходится
+    expect(
+      verifyTonProof({
+        ...base,
+        address: '0:' + 'ff'.repeat(32),
+      }),
+    ).toBe(false);
+    // Подмена pubkey → verify не пройдёт
+    const bogus = Buffer.alloc(32, 0).toString('hex');
+    expect(verifyTonProof({ ...base, publicKeyHex: bogus })).toBe(false);
+  });
+
+  it('режет подпись длиной != 64 и pubkey длиной != 32', async () => {
+    const keyPair = await mnemonicToKeyPair(TEST_MNEMONIC);
+    const good = buildTonProof({
+      keyPair,
+      address: EXPECTED_TESTNET.raw,
+      domain: 'd',
+      payload: 'p',
+      timestamp: 1,
+    });
+    expect(
+      verifyTonProof({
+        address: EXPECTED_TESTNET.raw,
+        publicKeyHex: keyPair.publicKey.toString('hex'),
+        domain: 'd',
+        payload: 'p',
+        timestamp: 1,
+        signatureBase64: Buffer.alloc(60).toString('base64'),
+      }),
+    ).toBe(false);
+    expect(
+      verifyTonProof({
+        address: EXPECTED_TESTNET.raw,
+        publicKeyHex: '00'.repeat(16),
+        domain: 'd',
+        payload: 'p',
+        timestamp: 1,
+        signatureBase64: good.proof.signature,
+      }),
+    ).toBe(false);
   });
 });
 

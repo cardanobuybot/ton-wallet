@@ -7,7 +7,7 @@
 
 - Монорепо на npm workspaces: `packages/core`, `apps/web`, `apps/api`
 - `packages/core`: чистый TypeScript; runtime-зависимости только `@ton/ton`, `@ton/core`,
-  `@ton/crypto`; тесты — vitest
+  `@ton/crypto`, `tweetnacl` (одобрен для TON Connect); тесты — vitest
 - `apps/web`: Vite + React + TS, PWA (manifest + service worker), хостинг Vercel
 - `apps/api`: Fastify + TS, хостинг Railway
 - TypeScript strict везде, ESLint + Prettier, Node >= 22

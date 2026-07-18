@@ -56,6 +56,7 @@ import { signSocialProof } from './social.ts';
 import { AddressChip } from './ui/AddressChip.tsx';
 import { Avatar } from './ui/Avatar.tsx';
 import { GramLogo } from './ui/GramLogo.tsx';
+import { WalletLogo } from './ui/WalletLogo.tsx';
 import { BottomSheet } from './ui/BottomSheet.tsx';
 import { useToast } from './ui/Toast.tsx';
 import { IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
@@ -170,7 +171,7 @@ export function App() {
         <b>DEV ONLY — testnet.</b> Не использовать с реальными средствами.
       </p>
       <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
-        <GramLogo size={28} />
+        <WalletLogo size={36} />
         grampocket
       </h1>
       {error && <p className="severity-danger">Ошибка: {error}</p>}
@@ -474,14 +475,21 @@ function PasswordForm(props: {
         props.onSubmit(password);
       }}
     >
-      <p>{props.label}</p>
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        autoFocus
-      />{' '}
-      <button type="submit">{props.submitText ?? 'Сохранить'}</button>
+      <fieldset>
+        <legend>{props.label}</legend>
+        <p style={{ margin: '0 0 10px' }}>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoFocus
+            style={{ width: '100%' }}
+          />
+        </p>
+        <button type="submit" className="btn-primary" style={{ width: '100%' }}>
+          {props.submitText ?? 'Сохранить'}
+        </button>
+      </fieldset>
     </form>
   );
 }

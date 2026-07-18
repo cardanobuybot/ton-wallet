@@ -1,5 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="20" fill="#0a0a0a"/>
-  <polygon points="50,85 15,25 85,25" fill="#0098ea"/>
-  <text x="50" y="22" text-anchor="middle" font-size="12" fill="#fff" font-family="monospace">DEV</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c5cff"/>
+      <stop offset="100%" stop-color="#3e8bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" ry="22" fill="url(#bg)"/>
+  <line x1="24" y1="30" x2="24" y2="70" stroke="#eef0fb" stroke-width="2" stroke-opacity="0.85" stroke-linecap="round"/>
+  <line x1="50" y1="22" x2="50" y2="82" stroke="#eef0fb" stroke-width="2" stroke-opacity="0.85" stroke-linecap="round"/>
+  <line x1="76" y1="18" x2="76" y2="72" stroke="#eef0fb" stroke-width="2" stroke-opacity="0.85" stroke-linecap="round"/>
+  <rect x="18" y="42" width="12" height="20" rx="2.5" fill="#3ddc97"/>
+  <rect x="44" y="34" width="12" height="36" rx="2.5" fill="#ff6b7a"/>
+  <rect x="70" y="26" width="12" height="42" rx="2.5" fill="#3ddc97"/>
 </svg>

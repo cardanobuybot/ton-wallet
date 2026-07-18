@@ -211,6 +211,17 @@ summary::before {
 }
 details[open] > summary::before { transform: rotate(90deg); }
 
+/* Вложенные details внутри .card (секция «Сервисы») — без своего фона и
+   рамки, просто строки с summary. Отделяются друг от друга тонкой линией. */
+.card > details {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 0;
+  margin: 0;
+}
+.card > details + details { border-top: 1px solid var(--line); }
+
 /* ---------- Инпуты ---------- */
 
 input, textarea, select {

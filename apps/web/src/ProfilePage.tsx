@@ -27,6 +27,7 @@ import {
 import { navigate } from './router.ts';
 import type { Session } from './session.ts';
 import { signSocialProof } from './social.ts';
+import { Avatar } from './ui/Avatar.tsx';
 import {
   deleteFavorite,
   isFavorite,
@@ -235,21 +236,26 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
 
       <fieldset>
         <legend>Профиль</legend>
-        <h2 style={{ margin: '4px 0' }}>
-          {social?.username ? (
-            <>
-              @{social.username}{' '}
-              <small style={{ fontWeight: 'normal' }}>
-                ({label ?? shortAddr(friendly)})
-              </small>
-            </>
-          ) : (
-            (label ?? shortAddr(friendly))
-          )}
-        </h2>
-        <p style={{ wordBreak: 'break-all' }}>
-          <small>{friendly}</small>
-        </p>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <Avatar seed={raw} size={64} radius={20} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 style={{ margin: '2px 0' }}>
+              {social?.username ? (
+                <>
+                  @{social.username}{' '}
+                  <small style={{ fontWeight: 'normal' }}>
+                    ({label ?? shortAddr(friendly)})
+                  </small>
+                </>
+              ) : (
+                (label ?? shortAddr(friendly))
+              )}
+            </h2>
+            <p style={{ margin: 0, wordBreak: 'break-all' }}>
+              <small>{friendly}</small>
+            </p>
+          </div>
+        </div>
         {social && (
           <p>
             <b>{social.followers}</b> подписчиков · подписан на{' '}

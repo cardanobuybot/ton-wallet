@@ -54,6 +54,7 @@ import { ProfilePage, consumeSendPrefill } from './ProfilePage.tsx';
 import { profileHref, useRoute } from './router.ts';
 import { signSocialProof } from './social.ts';
 import { AddressChip } from './ui/AddressChip.tsx';
+import { Avatar } from './ui/Avatar.tsx';
 import { BottomSheet } from './ui/BottomSheet.tsx';
 import { useToast } from './ui/Toast.tsx';
 import { IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
@@ -596,7 +597,12 @@ function AddressBook(props: { book: AddressBookEntry[]; onChange: () => void }) 
   const [error, setError] = useState<string | null>(null);
   return (
     <details>
-      <summary>Адресная книга ({props.book.length})</summary>
+      <summary>
+        Адресная книга
+        {props.book.length > 0 && (
+          <span className="pill" style={{ marginLeft: 8 }}>{props.book.length}</span>
+        )}
+      </summary>
       {error && <p className="severity-danger">Ошибка: {error}</p>}
       {props.book.map((e) => (
         <p key={e.raw} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
@@ -693,21 +699,26 @@ function UsernameCard(props: {
   }
 
   return (
-    <fieldset>
-      <legend>Твой @ник</legend>
+    <details>
+      <summary>
+        Твой @ник
+        {current && (
+          <span className="pill pill-accent" style={{ marginLeft: 8 }}>
+            @{current}
+          </span>
+        )}
+      </summary>
       {current ? (
-        <p>
+        <p style={{ marginTop: 8 }}>
           <b>@{current}</b>{' '}
-          <small>
-            (закреплён за адресом; смена ника пока не поддерживается)
-          </small>
+          <small>(закреплён за адресом; смена ника пока не поддерживается)</small>
         </p>
       ) : (
         <>
-          <p>
+          <p style={{ marginTop: 8 }}>
             <small>
-              Занять уникальный ник, чтобы тебя находили и подписывались.
-              Один адрес — один ник.
+              Ник — короткая ссылка @name вместо адреса. Профиль доступен и без
+              него. Один адрес — один ник.
             </small>
           </p>
           <p>
@@ -726,22 +737,41 @@ function UsernameCard(props: {
       )}
       {error && <p className="severity-danger">Ошибка: {error}</p>}
       {notice && <p className="severity-success">{notice}</p>}
-    </fieldset>
+    </details>
   );
 }
 
 function Favorites(props: { items: FavoriteAddress[]; onChange: () => void }) {
   return (
     <details>
-      <summary>Избранное ({props.items.length})</summary>
+      <summary>
+        Избранное
+        {props.items.length > 0 && (
+          <span className="pill" style={{ marginLeft: 8 }}>{props.items.length}</span>
+        )}
+      </summary>
       {props.items.length === 0 && (
         <p>
           <small>Добавь адрес со страницы профиля или из подтверждения перевода.</small>
         </p>
       )}
       {props.items.map((f) => (
-        <p key={f.raw} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
-          ★ <a href={profileHref(f.raw)}>{f.label ?? f.friendly}</a>{' '}
+        <div
+          key={f.raw}
+          style={{
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            margin: '6px 0',
+          }}
+        >
+          <Avatar seed={f.raw} size={32} radius={10} />
+          <a
+            href={profileHref(f.raw)}
+            style={{ flex: 1, minWidth: 0, wordBreak: 'break-all' }}
+          >
+            {f.label ?? f.friendly}
+          </a>
           <button
             onClick={() => {
               deleteFavorite(f.raw).then(props.onChange).catch(() => {});
@@ -749,7 +779,7 @@ function Favorites(props: { items: FavoriteAddress[]; onChange: () => void }) {
           >
             Убрать
           </button>
-        </p>
+        </div>
       ))}
     </details>
   );
@@ -815,7 +845,11 @@ function History(props: {
           : `${formatTonAmount(t.amount)} TON`;
         return (
           <div key={`${t.lt}:${t.hash}`} className="tx-row">
-            <div className={`tx-dir ${t.direction}`}>{t.direction === 'in' ? '↓' : '↑'}</div>
+            {t.counterparty ? (
+              <Avatar seed={t.counterparty.raw} size={32} radius={10} />
+            ) : (
+              <div className={`tx-dir ${t.direction}`}>{t.direction === 'in' ? '↓' : '↑'}</div>
+            )}
             <div className="tx-main">
               <div className="tx-verb">
                 {t.direction === 'in' ? 'Получено' : 'Отправлено'}
@@ -1413,18 +1447,18 @@ function DashboardView(p: DashboardViewProps) {
         })}
       </section>
 
-      {/* Сервисы: свободный стек карточек */}
-      <UsernameCard session={p.session} address={p.address} version={p.version} />
-
-      <TonConnectPanel
-        session={p.session}
-        version={p.version}
-        onTxRequest={(req) => void p.onDappRequest(req)}
-      />
-
-      <AddressBook book={p.book} onChange={p.reloadBook} />
-
-      <Favorites items={p.favorites} onChange={p.reloadFavorites} />
+      {/* Сервисы — все 4 свёрнуты в details, объединены секцией */}
+      <section className="card">
+        <h3 className="card-title">Сервисы</h3>
+        <UsernameCard session={p.session} address={p.address} version={p.version} />
+        <TonConnectPanel
+          session={p.session}
+          version={p.version}
+          onTxRequest={(req) => void p.onDappRequest(req)}
+        />
+        <AddressBook book={p.book} onChange={p.reloadBook} />
+        <Favorites items={p.favorites} onChange={p.reloadFavorites} />
+      </section>
 
       {/* История */}
       <History

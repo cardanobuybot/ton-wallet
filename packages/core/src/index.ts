@@ -32,10 +32,13 @@ export {
 } from './jetton.ts';
 export { parseRecipientAddress, formatAddress, type ParsedRecipient } from './address.ts';
 export {
+  createRawTransfer,
   createTransfer,
   resolveBounce,
   TRANSFER_TTL_SECONDS,
+  type CreateRawTransferParams,
   type CreateTransferParams,
+  type RawTransferMessage,
   type SignedTransfer,
 } from './transfer.ts';
 export {

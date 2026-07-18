@@ -9,15 +9,18 @@ const KEY = 'envelope';
 const BOOK_STORE = 'address-book';
 // TON Connect: сессии моста (x25519 сессионные ключи, НЕ ключи кошелька), ключ — client_id dApp
 const TC_STORE = 'tonconnect';
+// Избранные адреса (публичные данные), ключ — raw-адрес
+const FAV_STORE = 'favorites';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 3);
+    const req = indexedDB.open(DB_NAME, 4);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(BOOK_STORE)) db.createObjectStore(BOOK_STORE);
       if (!db.objectStoreNames.contains(TC_STORE)) db.createObjectStore(TC_STORE);
+      if (!db.objectStoreNames.contains(FAV_STORE)) db.createObjectStore(FAV_STORE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -148,6 +151,50 @@ export async function deleteTonConnectConnection(dAppClientId: string): Promise<
   const db = await openDb();
   await request(db.transaction(TC_STORE, 'readwrite').objectStore(TC_STORE).delete(dAppClientId));
   db.close();
+}
+
+// ---------- Избранное ----------
+
+export interface FavoriteAddress {
+  /** raw-адрес — ключ записи */
+  raw: string;
+  /** friendly для отображения (кэшируем, чтобы не пересобирать) */
+  friendly: string;
+  /** Пользовательский ярлык (опционально); при отсутствии показываем сокращённый адрес */
+  label?: string;
+  /** Unix-мс — сортировка «недавно добавленные» */
+  addedAt: number;
+}
+
+export async function listFavorites(): Promise<FavoriteAddress[]> {
+  const db = await openDb();
+  const result = await request(
+    db.transaction(FAV_STORE, 'readonly').objectStore(FAV_STORE).getAll(),
+  );
+  db.close();
+  const items = result as FavoriteAddress[];
+  return items.sort((a, b) => b.addedAt - a.addedAt);
+}
+
+export async function saveFavorite(fav: FavoriteAddress): Promise<void> {
+  const db = await openDb();
+  await request(db.transaction(FAV_STORE, 'readwrite').objectStore(FAV_STORE).put(fav, fav.raw));
+  db.close();
+}
+
+export async function deleteFavorite(raw: string): Promise<void> {
+  const db = await openDb();
+  await request(db.transaction(FAV_STORE, 'readwrite').objectStore(FAV_STORE).delete(raw));
+  db.close();
+}
+
+export async function isFavorite(raw: string): Promise<boolean> {
+  const db = await openDb();
+  const result = await request(
+    db.transaction(FAV_STORE, 'readonly').objectStore(FAV_STORE).get(raw),
+  );
+  db.close();
+  return result !== undefined;
 }
 
 // last_event_id моста — публичный курсор, храним рядом с walletVersion

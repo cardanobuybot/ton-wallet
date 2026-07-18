@@ -48,18 +48,24 @@ import {
 } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { TonConnectPanel, type DappTxRequest } from './TonConnectPanel.tsx';
+import { ProfilePage, consumeSendPrefill } from './ProfilePage.tsx';
+import { profileHref, useRoute } from './router.ts';
 import {
   deleteAddressBookEntry,
   deleteEnvelope,
+  deleteFavorite,
   listAddressBook,
+  listFavorites,
   isStoragePersisted,
   loadEnvelope,
   loadWalletVersion,
   requestPersistentStorage,
   saveAddressBookEntry,
   saveEnvelope,
+  saveFavorite,
   saveWalletVersion,
   type AddressBookEntry,
+  type FavoriteAddress,
 } from './storage.ts';
 
 const NETWORK = 'testnet' as const;
@@ -96,6 +102,7 @@ interface PendingSend {
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'loading' });
   const [error, setError] = useState<string | null>(null);
+  const route = useRoute();
   // null — ещё не знаем; false — браузер может выселить IndexedDB при нехватке места
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const sessionRef = useRef<Session | null>(null);
@@ -156,9 +163,11 @@ export function App() {
       <h1>ton-wallet</h1>
       {error && <p style={{ color: 'red' }}>Ошибка: {error}</p>}
 
-      {screen.name === 'loading' && <p>Загрузка…</p>}
+      {route.name === 'profile' && <ProfilePage addressInput={route.address} />}
 
-      {screen.name === 'setup' && (
+      {route.name === 'home' && screen.name === 'loading' && <p>Загрузка…</p>}
+
+      {route.name === 'home' && screen.name === 'setup' && (
         <>
           <button onClick={() => guard(async () => {
             setScreen({ name: 'show-mnemonic', mnemonic: await generateMnemonic() });
@@ -169,7 +178,7 @@ export function App() {
         </>
       )}
 
-      {screen.name === 'show-mnemonic' && (
+      {route.name === 'home' && screen.name === 'show-mnemonic' && (
         <>
           <h2>Запиши мнемонику</h2>
           <ol style={{ columns: 2 }}>
@@ -183,7 +192,7 @@ export function App() {
         </>
       )}
 
-      {screen.name === 'verify-mnemonic' && (
+      {route.name === 'home' && screen.name === 'verify-mnemonic' && (
         <MnemonicQuiz
           mnemonic={screen.mnemonic}
           onPass={() => setScreen({ name: 'password', mnemonic: screen.mnemonic, version: 'v5r1' })}
@@ -191,7 +200,7 @@ export function App() {
         />
       )}
 
-      {screen.name === 'import' && (
+      {route.name === 'home' && screen.name === 'import' && (
         <ImportForm
           onSubmit={(words) =>
             guard(async () => {
@@ -205,7 +214,7 @@ export function App() {
         />
       )}
 
-      {screen.name === 'choose-version' && (
+      {route.name === 'home' && screen.name === 'choose-version' && (
         <VersionPicker
           mnemonic={screen.mnemonic}
           onPick={(version) => setScreen({ name: 'password', mnemonic: screen.mnemonic, version })}
@@ -213,7 +222,7 @@ export function App() {
         />
       )}
 
-      {screen.name === 'password' && (
+      {route.name === 'home' && screen.name === 'password' && (
         <PasswordForm
           label="Задай пароль (мин. 8 символов) — им шифруется мнемоника на этом устройстве"
           onSubmit={(password) =>
@@ -228,7 +237,7 @@ export function App() {
         />
       )}
 
-      {screen.name === 'locked' && (
+      {route.name === 'home' && screen.name === 'locked' && (
         <>
           <PasswordForm
             label="Введи пароль"
@@ -265,7 +274,7 @@ export function App() {
         </>
       )}
 
-      {screen.name === 'wallet' && persisted === false && (
+      {route.name === 'home' && screen.name === 'wallet' && persisted === false && (
         <p style={{ color: '#b36b00' }}>
           Браузер может удалить локальные данные кошелька при нехватке места.{' '}
           <button onClick={() => void requestPersistentStorage().then(setPersisted)}>
@@ -274,7 +283,7 @@ export function App() {
           <small>(сид-фраза — единственный настоящий бэкап)</small>
         </p>
       )}
-      {screen.name === 'wallet' && (
+      {route.name === 'home' && screen.name === 'wallet' && (
         <Dashboard
           session={screen.session}
           address={screen.address}
@@ -617,6 +626,31 @@ function AddressBook(props: { book: AddressBookEntry[]; onChange: () => void }) 
   );
 }
 
+function Favorites(props: { items: FavoriteAddress[]; onChange: () => void }) {
+  return (
+    <details>
+      <summary>Избранное ({props.items.length})</summary>
+      {props.items.length === 0 && (
+        <p>
+          <small>Добавь адрес со страницы профиля или из подтверждения перевода.</small>
+        </p>
+      )}
+      {props.items.map((f) => (
+        <p key={f.raw} style={{ wordBreak: 'break-all', margin: '4px 0' }}>
+          ★ <a href={profileHref(f.raw)}>{f.label ?? f.friendly}</a>{' '}
+          <button
+            onClick={() => {
+              deleteFavorite(f.raw).then(props.onChange).catch(() => {});
+            }}
+          >
+            Убрать
+          </button>
+        </p>
+      ))}
+    </details>
+  );
+}
+
 const txHashHex = (base64: string): string =>
   Array.from(atob(base64), (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 
@@ -756,6 +790,20 @@ function Dashboard(props: {
       .catch(() => {});
   }, []);
   useEffect(reloadBook, [reloadBook]);
+
+  const [favorites, setFavorites] = useState<FavoriteAddress[]>([]);
+  const reloadFavorites = useCallback(() => {
+    listFavorites()
+      .then(setFavorites)
+      .catch(() => {});
+  }, []);
+  useEffect(reloadFavorites, [reloadFavorites]);
+
+  // «Отправить сюда» с профиля кладёт адрес в sessionStorage → подхватываем сюда.
+  useEffect(() => {
+    const prefill = consumeSendPrefill();
+    if (prefill) setTo(prefill);
+  }, []);
 
   const refresh = useCallback(async () => {
     const info = await getAccount(address.nonBounceable);
@@ -1037,7 +1085,8 @@ function Dashboard(props: {
       <p>
         <a href={explorer} target="_blank" rel="noreferrer">
           Открыть в tonscan (testnet)
-        </a>
+        </a>{' '}
+        <a href={profileHref(address.nonBounceable)}>Мой профиль</a>
       </p>
       <details>
         <summary>Получить TON (QR)</summary>
@@ -1131,7 +1180,24 @@ function Dashboard(props: {
               </small>
             </p>
           )}
-          <p style={{ wordBreak: 'break-all' }}>Кому: {send.pending.recipient.friendly}</p>
+          <p style={{ wordBreak: 'break-all' }}>
+            Кому:{' '}
+            <a href={profileHref(send.pending.recipient.raw)}>
+              {send.pending.recipient.friendly}
+            </a>{' '}
+            <button
+              onClick={() => {
+                const r = send.pending.recipient;
+                void saveFavorite({
+                  raw: r.raw,
+                  friendly: r.friendly,
+                  addedAt: Date.now(),
+                }).then(reloadFavorites);
+              }}
+            >
+              ★ В избранное
+            </button>
+          </p>
           <p>Сумма: {send.pending.displayAmount}</p>
           {send.pending.comment && <p>Комментарий: {send.pending.comment}</p>}
           <RecipientCard
@@ -1190,6 +1256,8 @@ function Dashboard(props: {
       />
 
       <AddressBook book={book} onChange={reloadBook} />
+
+      <Favorites items={favorites} onChange={reloadFavorites} />
 
       <History
         address={address}

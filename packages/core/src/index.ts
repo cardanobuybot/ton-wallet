@@ -99,3 +99,4 @@ export {
   type DetectFakeTokenParams,
   type KnownJetton,
 } from './antiscam.ts';
+export { aggregateActivity, type ProfileActivity } from './profile.ts';

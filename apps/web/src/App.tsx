@@ -55,6 +55,7 @@ import { profileHref, useRoute } from './router.ts';
 import { signSocialProof } from './social.ts';
 import { AddressChip } from './ui/AddressChip.tsx';
 import { Avatar } from './ui/Avatar.tsx';
+import { GramLogo } from './ui/GramLogo.tsx';
 import { BottomSheet } from './ui/BottomSheet.tsx';
 import { useToast } from './ui/Toast.tsx';
 import { IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
@@ -168,7 +169,10 @@ export function App() {
       <p className="dev-banner">
         <b>DEV ONLY — testnet.</b> Не использовать с реальными средствами.
       </p>
-      <h1>ton-wallet</h1>
+      <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+        <GramLogo size={28} />
+        grampocket
+      </h1>
       {error && <p className="severity-danger">Ошибка: {error}</p>}
 
       {route.name === 'profile' && (
@@ -530,13 +534,13 @@ function SimulationView(props: { report: SimulationReport }) {
             : 'недоступна — оценка по dry-run'}
       </p>
       <p style={{ margin: '0 0 4px' }}>
-        Изменение баланса: <b>{formatTonAmount(report.balanceChange)} TON</b> (комиссии ~
-        {formatTonAmount(report.fees)} TON)
+        Изменение баланса: <b>{formatTonAmount(report.balanceChange)} GRAM</b> (комиссии ~
+        {formatTonAmount(report.fees)} GRAM)
       </p>
       {report.actions.map((a, i) => (
         <p key={i} style={{ margin: '0 0 4px' }}>
           {a.type}: {a.description}
-          {a.amount !== undefined && <> — {formatTonAmount(a.amount)} TON</>}
+          {a.amount !== undefined && <> — {formatTonAmount(a.amount)} GRAM</>}
         </p>
       ))}
       {report.warnings.map((w) => (
@@ -842,7 +846,7 @@ function History(props: {
           ? known
             ? `${formatTokenAmount(t.jetton.amount, known.decimals)} ${known.symbol ?? known.name ?? 'JETTON'}`
             : `${t.jetton.amount} ед.`
-          : `${formatTonAmount(t.amount)} TON`;
+          : `${formatTonAmount(t.amount)} GRAM`;
         return (
           <div key={`${t.lt}:${t.hash}`} className="tx-row">
             {t.counterparty ? (
@@ -1070,7 +1074,7 @@ function Dashboard(props: {
           amount: attached,
           displayAmount: selected
             ? `${formatTokenAmount(nano, selected.decimals)} ${selected.symbol ?? selected.name ?? 'JETTON'} (+ ${formatTonAmount(attached)} TON газ)`
-            : `${formatTonAmount(nano)} TON`,
+            : `${formatTonAmount(nano)} GRAM`,
           comment,
           fee: BigInt(fee.totalFee),
           boc: transfer.bocBase64,
@@ -1169,7 +1173,7 @@ function Dashboard(props: {
         step: 'confirm',
         pending: {
           amount: total,
-          displayAmount: `${formatTonAmount(total)} TON (сообщений: ${msgs.length})`,
+          displayAmount: `${formatTonAmount(total)} GRAM (сообщений: ${msgs.length})`,
           comment: '',
           fee: BigInt(fee.totalFee),
           boc: transfer.bocBase64,
@@ -1418,10 +1422,10 @@ function DashboardView(p: DashboardViewProps) {
         <h3 className="card-title">Активы</h3>
         <AssetRow
           icon="ton"
-          name="TON"
-          sub="Toncoin"
+          name="GRAM"
+          sub="The Open Network"
           amount={p.balance === null ? '…' : formatTonAmount(p.balance)}
-          unit="TON"
+          unit="GRAM"
           onClick={() => openSend('TON')}
         />
         {p.jettons.map((j) => {
@@ -1504,7 +1508,7 @@ function DashboardView(p: DashboardViewProps) {
                 onChange={(e) => p.setAsset(e.target.value)}
                 style={{ width: '100%' }}
               >
-                <option value="TON">TON</option>
+                <option value="TON">GRAM (нативный)</option>
                 {p.jettons.map((j) => (
                   <option key={j.jettonMaster} value={j.jettonMaster}>
                     {j.symbol ?? j.name ?? j.jettonMaster.slice(0, 10)} (
@@ -1682,7 +1686,7 @@ function HeroBalance(props: { nano: bigint | null }) {
     <div className="balance">
       {intPart}
       {frac && <span className="balance-frac">{frac}</span>}
-      <span className="balance-unit">TON</span>
+      <span className="balance-unit">GRAM</span>
     </div>
   );
 }
@@ -1709,9 +1713,11 @@ function AssetRow(props: {
         }
       }}
     >
-      <div className={`asset-icon${props.icon === 'ton' ? ' ton' : ''}`}>
-        {props.icon === 'ton' ? '◆' : props.icon}
-      </div>
+      {props.icon === 'ton' ? (
+        <GramLogo size={36} />
+      ) : (
+        <div className="asset-icon">{props.icon}</div>
+      )}
       <div className="asset-main">
         <div className="asset-name">
           {props.name}

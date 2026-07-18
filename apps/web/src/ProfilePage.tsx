@@ -264,7 +264,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
         )}
         <p>
           {account
-            ? `Баланс: ${formatTonAmount(account.balance)} TON${account.deployed ? '' : ' (контракт не задеплоен)'}`
+            ? `Баланс: ${formatTonAmount(account.balance)} GRAM${account.deployed ? '' : ' (контракт не задеплоен)'}`
             : loading
               ? 'Загрузка баланса…'
               : 'Баланс недоступен'}
@@ -320,8 +320,8 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
               {activity.txOut}); джеттонов: <b>{activity.jettonTxCount}</b>; уникальных
               контрагентов: <b>{activity.uniqueCounterparties}</b>
             </p>
-            <p className="severity-success">Получено TON: +{formatTonAmount(activity.tonIn)}</p>
-            <p className="severity-danger">Отправлено TON: −{formatTonAmount(activity.tonOut)}</p>
+            <p className="severity-success">Получено GRAM: +{formatTonAmount(activity.tonIn)}</p>
+            <p className="severity-danger">Отправлено GRAM: −{formatTonAmount(activity.tonOut)}</p>
             {activity.latestUtime !== null && (
               <p>
                 <small>
@@ -350,7 +350,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
                   ? known
                     ? `${formatTokenAmount(t.jetton.amount, known.decimals)} ${known.symbol ?? known.name ?? 'JETTON'}`
                     : `${t.jetton.amount} ед. джеттона`
-                  : `${formatTonAmount(t.amount)} TON`}
+                  : `${formatTonAmount(t.amount)} GRAM`}
               </span>{' '}
               <small>
                 {new Date(t.utime * 1000).toLocaleString()}{' '}

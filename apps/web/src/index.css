@@ -170,10 +170,18 @@ fieldset {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-card);
-  padding: 14px 16px;
+  padding: 18px 18px 20px;
   margin: 12px 0;
   transition: border-color 0.2s;
 }
+/* Кнопки внутри форм не прижимаются к рамкам */
+fieldset > button:last-child,
+fieldset > p:last-child > button:only-child {
+  margin-top: 4px;
+}
+fieldset > p > input,
+fieldset > p > textarea,
+fieldset > p > select { margin-bottom: 6px; }
 fieldset:hover { border-color: var(--line-strong); }
 legend {
   padding: 0 8px;

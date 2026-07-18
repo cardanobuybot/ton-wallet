@@ -200,8 +200,26 @@ export function TonConnectPanel(props: {
   }
 
   return (
-    <fieldset>
-      <legend>TON Connect</legend>
+    <details>
+      <summary>
+        TON Connect
+        {connections.length > 0 && (
+          <span className="pill pill-accent" style={{ marginLeft: 8 }}>
+            {connections.length}
+          </span>
+        )}
+        {pending && (
+          <span className="pill pill-amber" style={{ marginLeft: 8 }}>
+            запрос
+          </span>
+        )}
+      </summary>
+      <p style={{ color: 'var(--muted)', margin: '6px 0 10px' }}>
+        <small>
+          Подключение к dApp'у: скопируй в dApp'e ссылку «TON Connect» и вставь ниже.
+          Нужно только если пользуешься dApp'ами.
+        </small>
+      </p>
       {error && <p className="severity-danger">Ошибка: {error}</p>}
 
       {pending === null ? (
@@ -248,6 +266,6 @@ export function TonConnectPanel(props: {
           <button onClick={() => void disconnect(c)}>Отключить</button>
         </p>
       ))}
-    </fieldset>
+    </details>
   );
 }

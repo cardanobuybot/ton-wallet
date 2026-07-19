@@ -41,6 +41,21 @@ const MIGRATIONS = [
     PRIMARY KEY (follower_raw, target_raw)
   )`,
   `CREATE INDEX IF NOT EXISTS follows_target_idx ON follows (target_raw)`,
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    address_raw TEXT NOT NULL,
+    endpoint    TEXT NOT NULL,
+    p256dh      TEXT NOT NULL,
+    auth_key    TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (address_raw, endpoint)
+  )`,
+  `CREATE INDEX IF NOT EXISTS push_subs_endpoint_idx ON push_subscriptions (endpoint)`,
+  // Курсор поллинга toncenter — последний lt, для которого мы уже разослали пуши.
+  `CREATE TABLE IF NOT EXISTS push_cursors (
+    address_raw TEXT PRIMARY KEY,
+    last_lt     TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
 ];
 
 export async function runMigrations(): Promise<void> {

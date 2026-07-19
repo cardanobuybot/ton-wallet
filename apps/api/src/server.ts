@@ -3,6 +3,7 @@
 import Fastify from 'fastify';
 import { runMigrations } from './db.ts';
 import { registerSocialRoutes } from './social.ts';
+import { registerPushRoutes } from './push.ts';
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '127.0.0.1';
@@ -224,6 +225,7 @@ app.post<{ Body: { boc: string } }>('/send-boc', async (request) => {
 });
 
 await registerSocialRoutes(app);
+await registerPushRoutes(app);
 
 // Миграции идемпотентны и очень маленькие; на старте это ок.
 // При отсутствии DATABASE_URL функция no-op — соц-эндпоинты вернут 503.

@@ -43,12 +43,12 @@
 /* ---------- Токены ---------- */
 
 :root {
-  --bg: #0a0c14;
-  --surface: #151a2b;
-  --surface-2: #1c2238;
-  --input: #0d1122;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.14);
+  --bg: #000000;
+  --surface: #0f0f0f;
+  --surface-2: #171717;
+  --input: #0a0a0a;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
 
   --text: #eef0fb;
   --muted: #8b92b6;
@@ -97,17 +97,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Радиальная подсветка сверху — очень тонкая, оживляет чернь. */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    radial-gradient(60% 40% at 20% -5%, rgba(124, 92, 255, 0.14), transparent 70%),
-    radial-gradient(60% 40% at 80% -5%, rgba(62, 139, 255, 0.10), transparent 70%);
-}
+/* Радиальная подсветка отключена — владелец хочет абсолютно чёрный фон. */
 
 main {
   max-width: 460px;

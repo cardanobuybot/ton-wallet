@@ -116,3 +116,19 @@ export const listFollowers = (raw: string) =>
   call<{ items: { addressRaw: string; username: string | null }[] }>(
     `/followers/${encodeURIComponent(raw)}`,
   );
+
+// ---------- Web Push (спринт 10) ----------
+
+export const getVapidKey = () => call<{ publicKey: string }>(`/push/vapid-key`);
+
+export interface WebPushSubscriptionJSON {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+export const subscribeToPush = (
+  body: SocialAuthPayload & { subscription: WebPushSubscriptionJSON },
+) => call<{ ok: boolean }>(`/push/subscribe`, body);
+
+export const unsubscribeFromPush = (body: SocialAuthPayload & { endpoint: string }) =>
+  call<{ ok: boolean }>(`/push/unsubscribe`, body);

@@ -18,6 +18,53 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Web Push: получаем event → показываем нотификацию.
+// Payload — JSON: {title, body, url?, tag?} (см. apps/api/src/push.ts).
+self.addEventListener('push', (event) => {
+  const data = (() => {
+    try {
+      return event.data ? event.data.json() : {};
+    } catch {
+      return {};
+    }
+  })();
+  const title = data.title || 'grampocket';
+  const body = data.body || '';
+  const options = {
+    body,
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    tag: data.tag || undefined,
+    data: { url: data.url || '/' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Клик по нотификации: открываем URL (обычно хеш-маршрут, напр. #/u/<addr>).
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    (async () => {
+      const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const url = new URL(target, self.location.origin).href;
+      // Если наше окно уже открыто — фокусим и роутим по хеш-части.
+      for (const client of clientsList) {
+        if (client.url.startsWith(self.location.origin)) {
+          await client.focus();
+          if (target.startsWith('#') || target.startsWith('/#')) {
+            const hash = target.startsWith('/') ? target.slice(1) : target;
+            client.postMessage({ type: 'navigate', hash });
+          }
+          return;
+        }
+      }
+      // Иначе — новое окно.
+      await self.clients.openWindow(url);
+    })(),
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;

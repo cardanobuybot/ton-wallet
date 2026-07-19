@@ -57,6 +57,7 @@ import { AddressChip } from './ui/AddressChip.tsx';
 import { Avatar } from './ui/Avatar.tsx';
 import { GramLogo } from './ui/GramLogo.tsx';
 import { WalletLogo } from './ui/WalletLogo.tsx';
+import { NotificationsCard } from './NotificationsCard.tsx';
 import { BottomSheet } from './ui/BottomSheet.tsx';
 import { useToast } from './ui/Toast.tsx';
 import { IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
@@ -1459,10 +1460,11 @@ function DashboardView(p: DashboardViewProps) {
         })}
       </section>
 
-      {/* Сервисы — все 4 свёрнуты в details, объединены секцией */}
+      {/* Сервисы — свёрнуты в details, объединены секцией */}
       <section className="card">
         <h3 className="card-title">Сервисы</h3>
         <UsernameCard session={p.session} address={p.address} version={p.version} />
+        <NotificationsCard session={p.session} address={p.address} version={p.version} />
         <TonConnectPanel
           session={p.session}
           version={p.version}

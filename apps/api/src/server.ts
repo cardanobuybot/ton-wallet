@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { runMigrations } from './db.ts';
 import { registerSocialRoutes } from './social.ts';
 import { registerPushRoutes } from './push.ts';
+import { startPushPoller } from './push-poller.ts';
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '127.0.0.1';
@@ -234,6 +235,9 @@ try {
 } catch (err) {
   app.log.error({ err }, 'db migration failed');
 }
+
+// Фоновый пуллер push-уведомлений (no-op при отсутствии DATABASE_URL/VAPID).
+startPushPoller();
 
 app.listen({ port, host }).catch((err) => {
   app.log.error(err);

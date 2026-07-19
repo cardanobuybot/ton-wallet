@@ -269,12 +269,15 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
               ? 'Загрузка баланса…'
               : 'Баланс недоступен'}
         </p>
-        <p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
           <button onClick={() => void toggleFavorite()}>
             {fav ? '★ В избранном (убрать)' : '☆ В избранное'}
-          </button>{' '}
+          </button>
           {props.viewer && props.viewer.address.raw !== raw && (
-            <button onClick={() => void toggleFollow()} disabled={followBusy || following === null}>
+            <button
+              onClick={() => void toggleFollow()}
+              disabled={followBusy || following === null}
+            >
               {followBusy
                 ? '…'
                 : following === null
@@ -283,21 +286,22 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
                     ? 'Отписаться'
                     : 'Подписаться'}
             </button>
-          )}{' '}
-          <button onClick={sendHere}>Отправить сюда</button>{' '}
-          <a
-            href={`https://testnet.tonscan.org/address/${raw}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            tonscan
-          </a>{' '}
+          )}
+          <button onClick={sendHere}>Отправить сюда</button>
           <button
             onClick={() => void navigator.clipboard.writeText(friendly).catch(() => {})}
           >
             Скопировать адрес
           </button>
-        </p>
+          <a
+            href={`https://testnet.tonscan.org/address/${raw}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{ alignSelf: 'center', marginLeft: 4 }}
+          >
+            tonscan ↗
+          </a>
+        </div>
         {socialErr && (
           <p>
             <small className="severity-warn">

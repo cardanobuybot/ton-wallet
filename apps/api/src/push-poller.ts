@@ -3,7 +3,7 @@
 // уведомления через pushToAddress. Также рассылает уведомления
 // подписчикам (кто follows этот адрес) — «@name ↑ отправил / ↓ получил».
 
-import { formatTonAmount, parseTransactions } from '@ton-wallet/core';
+import { formatTokenAmount, formatTonAmount, parseTransactions } from '@ton-wallet/core';
 import type { TxHistoryItem } from '@ton-wallet/core';
 import { sql } from './db.ts';
 import { pushToAddress, type PushEvent } from './push.ts';
@@ -36,19 +36,72 @@ function shortAddr(friendly: string): string {
   return friendly.length > 12 ? `${friendly.slice(0, 6)}…${friendly.slice(-4)}` : friendly;
 }
 
-function eventForOwn(t: TxHistoryItem): PushEvent | null {
+interface JettonMeta {
+  symbol: string | null;
+  decimals: number;
+}
+
+// Кэш метаданных по адресу джеттон-кошелька. Метаданные мастера практически
+// неизменяемы, поэтому кэшируем без TTL; null = «кошелёк не найден» тоже кэшируется.
+const jettonMetaCache = new Map<string, JettonMeta | null>();
+const JETTON_META_CACHE_MAX = 1000;
+
+interface V3JettonWallets {
+  jetton_wallets?: Array<{ address: string; jetton: string }>;
+  metadata?: Record<
+    string,
+    { token_info?: Array<{ type: string; symbol?: string; extra?: { decimals?: string | number } }> }
+  >;
+}
+
+async function jettonMeta(jettonWallet: string): Promise<JettonMeta | null> {
+  const cached = jettonMetaCache.get(jettonWallet);
+  if (cached !== undefined) return cached;
+  const base = process.env.TONCENTER_V3_BASE ?? 'https://testnet.toncenter.com/api/v3';
+  const key = process.env.TONCENTER_API_KEY;
+  let meta: JettonMeta | null;
+  try {
+    const res = await fetch(
+      `${base}/jetton/wallets?address=${encodeURIComponent(jettonWallet)}&limit=1`,
+      {
+        headers: { ...(key ? { 'x-api-key': key } : {}) },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    // Сетевые/серверные сбои не кэшируем — попробуем в следующий тик.
+    if (!res.ok) return null;
+    const data = (await res.json()) as V3JettonWallets;
+    const w = data.jetton_wallets?.[0];
+    const info = w
+      ? data.metadata?.[w.jetton]?.token_info?.find((t) => t.type === 'jetton_masters')
+      : undefined;
+    if (!w) {
+      meta = null;
+    } else {
+      const d = Number(info?.extra?.decimals ?? 9);
+      meta = {
+        symbol: info?.symbol ?? null,
+        decimals: Number.isInteger(d) && d >= 0 && d <= 255 ? d : 9,
+      };
+    }
+  } catch {
+    return null;
+  }
+  if (jettonMetaCache.size >= JETTON_META_CACHE_MAX) jettonMetaCache.clear();
+  jettonMetaCache.set(jettonWallet, meta);
+  return meta;
+}
+
+function jettonAmountText(t: TxHistoryItem, meta: JettonMeta | null): string {
+  if (!t.jetton) return '';
+  if (!meta) return `${t.jetton.amount} ед. джеттона`;
+  return `${formatTokenAmount(t.jetton.amount, meta.decimals)} ${meta.symbol ?? 'ед.'}`;
+}
+
+function eventForOwn(t: TxHistoryItem, meta: JettonMeta | null): PushEvent | null {
   const arrow = t.direction === 'in' ? '↓' : '↑';
   const cp = t.counterparty ? shortAddr(t.counterparty.friendly) : '?';
-  if (t.jetton) {
-    // Символа/decimals у джеттона на этом уровне нет — печатаем raw amount.
-    return {
-      title: `${arrow} ${t.jetton.amount} ед. джеттона`,
-      body: t.direction === 'in' ? `от ${cp}` : `→ ${cp}`,
-      url: t.counterparty ? `#/u/${encodeURIComponent(t.counterparty.raw)}` : '',
-      tag: `own:${t.hash}`,
-    };
-  }
-  const amount = `${formatTonAmount(t.amount)} GRAM`;
+  const amount = t.jetton ? jettonAmountText(t, meta) : `${formatTonAmount(t.amount)} GRAM`;
   return {
     title: `${arrow} ${amount}`,
     body: t.direction === 'in' ? `от ${cp}` : `→ ${cp}`,
@@ -57,11 +110,13 @@ function eventForOwn(t: TxHistoryItem): PushEvent | null {
   };
 }
 
-function eventForFollower(t: TxHistoryItem, targetShort: string): PushEvent | null {
+function eventForFollower(
+  t: TxHistoryItem,
+  targetShort: string,
+  meta: JettonMeta | null,
+): PushEvent | null {
   const arrow = t.direction === 'in' ? '↓' : '↑';
-  const amount = t.jetton
-    ? `${t.jetton.amount} ед.`
-    : `${formatTonAmount(t.amount)} GRAM`;
+  const amount = t.jetton ? jettonAmountText(t, meta) : `${formatTonAmount(t.amount)} GRAM`;
   return {
     title: `${targetShort} ${arrow} ${amount}`,
     body: t.counterparty
@@ -126,14 +181,15 @@ async function processAddress(addressRaw: string, subscriberCount: number): Prom
 
   // Разошлём в обратном порядке, чтобы свежайшая приходила последней.
   for (const t of fresh.slice().reverse()) {
+    const meta = t.jetton ? await jettonMeta(t.jetton.jettonWallet) : null;
     // Владельцу — если у него есть push-подписки.
     if (subscriberCount > 0) {
-      const evt = eventForOwn(t);
+      const evt = eventForOwn(t, meta);
       if (evt) await pushToAddress(addressRaw, evt);
     }
     // Подписчикам.
     if (followers.length > 0) {
-      const evt = eventForFollower(t, nick);
+      const evt = eventForFollower(t, nick, meta);
       if (evt) {
         await Promise.allSettled(followers.map((f) => pushToAddress(f, evt)));
       }

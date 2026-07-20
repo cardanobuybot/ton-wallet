@@ -41,6 +41,9 @@ const MIGRATIONS = [
     PRIMARY KEY (follower_raw, target_raw)
   )`,
   `CREATE INDEX IF NOT EXISTS follows_target_idx ON follows (target_raw)`,
+  // Сносим никнеймы — идентификация только по адресу. Идемпотентно.
+  `DROP INDEX IF EXISTS usernames_username_lower_idx`,
+  `DROP TABLE IF EXISTS usernames`,
   `CREATE TABLE IF NOT EXISTS push_subscriptions (
     address_raw TEXT NOT NULL,
     endpoint    TEXT NOT NULL,

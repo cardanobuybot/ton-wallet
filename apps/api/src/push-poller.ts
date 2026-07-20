@@ -98,12 +98,8 @@ async function followerAddresses(
   return rows.map((r) => r.follower_raw);
 }
 
-async function targetNick(s: ReturnType<typeof sql>, raw: string): Promise<string> {
-  if (!s) return shortAddr(raw);
-  const rows = await s<
-    { username: string }[]
-  >`SELECT username FROM usernames WHERE address_raw = ${raw}`;
-  return rows[0] ? `@${rows[0].username}` : shortAddr(raw);
+function targetLabel(raw: string): string {
+  return shortAddr(raw);
 }
 
 async function processAddress(addressRaw: string, subscriberCount: number): Promise<void> {
@@ -126,7 +122,7 @@ async function processAddress(addressRaw: string, subscriberCount: number): Prom
   if (cursor === null) return;
 
   const followers = await followerAddresses(s, addressRaw);
-  const nick = followers.length > 0 ? await targetNick(s, addressRaw) : '';
+  const nick = followers.length > 0 ? targetLabel(addressRaw) : '';
 
   // Разошлём в обратном порядке, чтобы свежайшая приходила последней.
   for (const t of fresh.slice().reverse()) {

@@ -40,10 +40,8 @@ import {
   estimateFee,
   getAccount,
   getAddressIntel,
-  getAddressSocial,
   getJettons,
   getTransactions,
-  registerUsername,
   sendBoc,
   type AddressIntel,
   type JettonBalance,
@@ -52,7 +50,6 @@ import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { TonConnectPanel, type DappTxRequest } from './TonConnectPanel.tsx';
 import { ProfilePage, consumeSendPrefill } from './ProfilePage.tsx';
 import { profileHref, useRoute } from './router.ts';
-import { signSocialProof } from './social.ts';
 import { AddressChip } from './ui/AddressChip.tsx';
 import { Avatar } from './ui/Avatar.tsx';
 import { GramLogo } from './ui/GramLogo.tsx';
@@ -663,93 +660,6 @@ function AddressBook(props: { book: AddressBookEntry[]; onChange: () => void }) 
           Сохранить
         </button>
       </p>
-    </details>
-  );
-}
-
-function UsernameCard(props: {
-  session: Session;
-  address: WalletAddress;
-  version: WalletVersion;
-}) {
-  const [current, setCurrent] = useState<string | null>(null);
-  const [desired, setDesired] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const reload = useCallback(() => {
-    getAddressSocial(props.address.raw)
-      .then((s) => setCurrent(s.username))
-      .catch(() => {});
-  }, [props.address.raw]);
-  useEffect(reload, [reload]);
-
-  async function submit() {
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const clean = desired.trim().toLowerCase().replace(/^@/, '');
-      if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
-        throw new Error('Ник: 3–20 знаков, только a–z, 0–9, _');
-      }
-      const auth = signSocialProof(
-        props.session,
-        props.address,
-        props.version,
-        `register:@${clean}`,
-      );
-      const res = await registerUsername({ ...auth, username: clean });
-      setCurrent(res.username);
-      setDesired('');
-      setNotice(`Ник @${res.username} закреплён за твоим адресом`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <details>
-      <summary>
-        Твой @ник
-        {current && (
-          <span className="pill pill-accent" style={{ marginLeft: 8 }}>
-            @{current}
-          </span>
-        )}
-      </summary>
-      {current ? (
-        <p style={{ marginTop: 8 }}>
-          <b>@{current}</b>{' '}
-          <small>(закреплён за адресом; смена ника пока не поддерживается)</small>
-        </p>
-      ) : (
-        <>
-          <p style={{ marginTop: 8 }}>
-            <small>
-              Ник — короткая ссылка @name вместо адреса. Профиль доступен и без
-              него. Один адрес — один ник.
-            </small>
-          </p>
-          <p>
-            @
-            <input
-              value={desired}
-              onChange={(e) => setDesired(e.target.value)}
-              maxLength={20}
-              placeholder="alice"
-            />{' '}
-            <button onClick={() => void submit()} disabled={busy || !desired.trim()}>
-              {busy ? 'Подписываем…' : 'Занять'}
-            </button>
-          </p>
-        </>
-      )}
-      {error && <p className="severity-danger">Ошибка: {error}</p>}
-      {notice && <p className="severity-success">{notice}</p>}
     </details>
   );
 }
@@ -1463,7 +1373,6 @@ function DashboardView(p: DashboardViewProps) {
       {/* Сервисы — свёрнуты в details, объединены секцией */}
       <section className="card">
         <h3 className="card-title">Сервисы</h3>
-        <UsernameCard session={p.session} address={p.address} version={p.version} />
         <NotificationsCard session={p.session} address={p.address} version={p.version} />
         <TonConnectPanel
           session={p.session}

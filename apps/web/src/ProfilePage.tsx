@@ -239,18 +239,7 @@ export function ProfilePage(props: { addressInput: string; viewer?: ProfileViewe
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           <Avatar seed={raw} size={64} radius={20} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 style={{ margin: '2px 0' }}>
-              {social?.username ? (
-                <>
-                  @{social.username}{' '}
-                  <small style={{ fontWeight: 'normal' }}>
-                    ({label ?? shortAddr(friendly)})
-                  </small>
-                </>
-              ) : (
-                (label ?? shortAddr(friendly))
-              )}
-            </h2>
+            <h2 style={{ margin: '2px 0' }}>{label ?? shortAddr(friendly)}</h2>
             <p style={{ margin: 0, wordBreak: 'break-all' }}>
               <small>{friendly}</small>
             </p>

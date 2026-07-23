@@ -179,6 +179,12 @@ async function processAddress(addressRaw: string, subscriberCount: number): Prom
   const followers = await followerAddresses(s, addressRaw);
   const nick = followers.length > 0 ? targetLabel(addressRaw) : '';
 
+  if (fresh.length > 0) {
+    console.log(
+      `[push-poller] ${addressRaw.slice(0, 10)}… fresh=${fresh.length}, followers=${followers.length}, ownSubs=${subscriberCount}`,
+    );
+  }
+
   // Разошлём в обратном порядке, чтобы свежайшая приходила последней.
   for (const t of fresh.slice().reverse()) {
     const meta = t.jetton ? await jettonMeta(t.jetton.jettonWallet) : null;
@@ -217,6 +223,13 @@ async function pollOnce(): Promise<void> {
       FROM subs_cnt s
       FULL OUTER JOIN followed f ON s.address_raw = f.address_raw
   `;
+
+  // Heartbeat раз в тик, чтобы можно было увидеть, что пуллер живой,
+  // и сразу понять сколько адресов он крутит и сколько активных подписок.
+  const activeSubs = rows.reduce((acc, r) => acc + Number(r.subs || 0), 0);
+  console.log(
+    `[push-poller] tick: addrs=${rows.length}, subs=${activeSubs}`,
+  );
 
   for (const r of rows) {
     if (!r.address_raw) continue;

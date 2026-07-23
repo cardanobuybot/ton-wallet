@@ -144,7 +144,22 @@ export async function registerPushRoutes(app: FastifyInstance): Promise<void> {
             ON CONFLICT (address_raw, endpoint) DO UPDATE
               SET p256dh = EXCLUDED.p256dh,
                   auth_key = EXCLUDED.auth_key`;
+    console.log('[push]', 'subscribed', addressRaw, 'endpoint:', sub.endpoint.slice(0, 60));
     return { ok: true };
+  });
+
+  // Диагностический readonly-эндпоинт: сколько подписок и какое состояние
+  // курсоров у пуллера. Публичный (никаких секретов не отдаёт), но полезен
+  // для быстрой проверки состояния после subscribe. При отсутствии БД → 503.
+  app.get('/push/status', async () => {
+    const s = requireDb();
+    const subs = await s<{ address_raw: string; endpoint_short: string }[]>`
+      SELECT address_raw, LEFT(endpoint, 60) AS endpoint_short
+        FROM push_subscriptions ORDER BY created_at DESC LIMIT 20`;
+    const cursors = await s<{ address_raw: string; last_lt: string; updated_at: string }[]>`
+      SELECT address_raw, last_lt, updated_at
+        FROM push_cursors ORDER BY updated_at DESC LIMIT 20`;
+    return { subs, cursors, now: new Date().toISOString() };
   });
 
   app.post<{ Body: AuthPayload & { endpoint: string } }>(

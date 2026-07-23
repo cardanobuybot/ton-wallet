@@ -57,7 +57,8 @@ import { WalletLogo } from './ui/WalletLogo.tsx';
 import { NotificationsCard } from './NotificationsCard.tsx';
 import { BottomSheet } from './ui/BottomSheet.tsx';
 import { useToast } from './ui/Toast.tsx';
-import { IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
+import { IconCamera, IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
+import { QrScanner } from './ui/QrScanner.tsx';
 import {
   deleteAddressBookEntry,
   deleteEnvelope,
@@ -1210,10 +1211,35 @@ interface DashboardViewProps {
   explorer: string;
 }
 
+// TON-адрес (raw wc:hex или friendly EQ/UQ/kQ/0Q) или деп-линк ton://transfer/…
+// возвращаем { address, amount?, comment? }; всё остальное → null.
+function parseTonQr(raw: string): { address: string; amount?: string; comment?: string } | null {
+  const value = raw.trim();
+  if (
+    /^(EQ|UQ|kQ|0Q)[A-Za-z0-9_-]{40,60}$/.test(value) ||
+    /^(0|-1):[A-Fa-f0-9]{64}$/.test(value)
+  ) {
+    return { address: value };
+  }
+  const m = value.match(/^ton:\/\/transfer\/([^?]+)(?:\?(.*))?$/i);
+  if (m && m[1]) {
+    const address = decodeURIComponent(m[1]);
+    const params = new URLSearchParams(m[2] ?? '');
+    const nano = params.get('amount');
+    const commentRaw = params.get('text') ?? params.get('comment');
+    const out: { address: string; amount?: string; comment?: string } = { address };
+    if (nano && /^\d+$/.test(nano)) out.amount = formatTonAmount(BigInt(nano));
+    if (commentRaw) out.comment = commentRaw;
+    return out;
+  }
+  return null;
+}
+
 function DashboardView(p: DashboardViewProps) {
   const toast = useToast();
   const [sendOpen, setSendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // Открываем шторку отправки, если запустился confirm (в т.ч. по запросу от dApp).
   useEffect(() => {
@@ -1441,15 +1467,35 @@ function DashboardView(p: DashboardViewProps) {
                 <small>Кому (raw или friendly)</small>
               </label>
               <br />
-              <input
-                id="to"
-                value={p.to}
-                onChange={(e) => p.setTo(e.target.value)}
-                autoCapitalize="off"
-                autoComplete="off"
-                spellCheck={false}
-                className="mono"
-              />
+              <span style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                <input
+                  id="to"
+                  value={p.to}
+                  onChange={(e) => p.setTo(e.target.value)}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mono"
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(true)}
+                  aria-label="Сканировать QR"
+                  title="Сканировать QR"
+                  style={{
+                    width: 44,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                  }}
+                >
+                  <span style={{ width: 22, height: 22, display: 'inline-block' }}>
+                    <IconCamera />
+                  </span>
+                </button>
+              </span>
             </p>
             <p style={{ margin: '8px 0 6px' }}>
               <label htmlFor="amount">
@@ -1591,6 +1637,26 @@ function DashboardView(p: DashboardViewProps) {
           );
         })()}
       </BottomSheet>
+
+      {/* QR-сканер камерой: раскодированный текст парсится как TON-адрес или
+          ton://transfer/… и подставляется в поле «Кому» (и опционально в сумму/комментарий). */}
+      <QrScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(raw) => {
+          setScannerOpen(false);
+          const parsed = parseTonQr(raw);
+          if (!parsed) {
+            toast.push('danger', 'В QR нет TON-адреса');
+            return;
+          }
+          p.setTo(parsed.address);
+          if (parsed.amount) p.setAmount(parsed.amount);
+          if (parsed.comment) p.setComment(parsed.comment);
+          toast.push('success', 'Адрес получен из QR');
+          setSendOpen(true);
+        }}
+      />
     </>
   );
 }

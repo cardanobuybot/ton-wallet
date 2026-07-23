@@ -1252,21 +1252,25 @@ function DashboardView(p: DashboardViewProps) {
       setSendOpen(true);
     }
     if (p.send.step === 'done') {
-      toast.push('success', 'Отправлено и подтверждено (seqno вырос)');
+      toast.push('success', 'Отправлено и подтверждено');
       setSendOpen(false);
       const t = setTimeout(() => p.setSend({ step: 'idle' }), 250);
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [p.send.step, toast, p]);
+    // Зависим ТОЛЬКО от step: у `p` меняется reference на каждый ререндер
+    // родителя, из-за чего эффект перезапускался и пушил тост по 10+ раз
+    // подряд, забивая экран (regression, replayed 2026-07-23).
+  }, [p.send.step]);
 
-  // Ошибки из потока — тостом.
+  // Ошибки из потока — тостом. Depends on p.error только: reference `p`
+  // меняется каждый ререндер и раньше вызывал повторные тосты.
   useEffect(() => {
     if (p.error) {
       toast.push('danger', p.error);
       p.setError(null);
     }
-  }, [p, toast]);
+  }, [p.error]);
 
   const openSend = (preselectAsset?: string) => {
     if (preselectAsset) p.setAsset(preselectAsset);
@@ -1314,7 +1318,6 @@ function DashboardView(p: DashboardViewProps) {
           <AddressChip value={p.address.nonBounceable} />
         </div>
         <div className="hero-meta">
-          seqno {p.seqno} ·{' '}
           <a href={p.explorer} target="_blank" rel="noreferrer">
             открыть в tonscan
           </a>{' '}
@@ -1629,7 +1632,7 @@ function DashboardView(p: DashboardViewProps) {
                   {step === 'sending'
                     ? 'Отправляем…'
                     : step === 'waiting'
-                      ? 'Ждём seqno…'
+                      ? 'Ждём подтверждения…'
                       : 'Подтвердить'}
                 </button>
               </div>

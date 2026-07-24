@@ -30,10 +30,12 @@ self.addEventListener('push', (event) => {
   })();
   const title = data.title || 'grampocket';
   const body = data.body || '';
+  // ВАЖНО: icon/badge — только PNG. SVG здесь Android/Chrome могут молча
+  // отбросить и не показать нотификацию (пуш пришёл, но пользователь ничего
+  // не видит). Пока PNG-иконки в проекте нет — просто не задаём icon/badge,
+  // Chrome нарисует свой дефолт (вполне узнаваемо).
   const options = {
     body,
-    icon: '/icon.svg',
-    badge: '/icon.svg',
     tag: data.tag || undefined,
     data: { url: data.url || '/' },
   };

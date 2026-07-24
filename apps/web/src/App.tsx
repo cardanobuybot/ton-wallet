@@ -882,6 +882,15 @@ function Dashboard(props: {
 
   useEffect(() => {
     refresh().catch((e) => setError(String(e)));
+    // Auto-poll: раз в 20с подтягиваем баланс/seqno/refreshTick, чтобы
+    // История и джеттоны сами обновлялись без нажатия «Обновить».
+    // Пропускаем tick, если вкладка скрыта — не жжём toncenter квоту
+    // и не сажаем батарейку зря.
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      refresh().catch(() => {});
+    }, 20_000);
+    return () => clearInterval(interval);
   }, [refresh]);
 
   async function prepare() {
@@ -1526,15 +1535,20 @@ function DashboardView(p: DashboardViewProps) {
                 <small>Сумма</small>
               </label>
               <br />
-              <span style={{ display: 'flex', gap: 8 }}>
+              <span style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
                 <input
                   id="amount"
                   value={p.amount}
                   onChange={(e) => p.setAmount(e.target.value)}
                   inputMode="decimal"
                   className="mono"
+                  style={{ flex: 1, minWidth: 0 }}
                 />
-                <button type="button" onClick={setMax}>
+                <button
+                  type="button"
+                  onClick={setMax}
+                  style={{ whiteSpace: 'nowrap', minWidth: 56, padding: '0 12px' }}
+                >
                   MAX
                 </button>
               </span>

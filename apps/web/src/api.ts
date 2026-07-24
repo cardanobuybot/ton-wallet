@@ -51,6 +51,22 @@ export interface JettonBalance {
 export const getJettons = (address: string) =>
   call<{ jettons: JettonBalance[] }>(`/jettons/${encodeURIComponent(address)}`);
 
+export interface NftItem {
+  /** raw-адрес NFT-item контракта */
+  address: string;
+  /** index внутри коллекции (для standalone-NFT — 0) */
+  index: number;
+  name: string;
+  image: string | null;
+  collectionAddress: string | null;
+  collectionName: string | null;
+  /** tonapi trust label: whitelist/graylist/blacklist — если есть */
+  trust?: string;
+}
+
+export const getNfts = (address: string) =>
+  call<{ items: NftItem[] }>(`/nfts/${encodeURIComponent(address)}`);
+
 export interface AddressIntel {
   deployed: boolean;
   balance: string;

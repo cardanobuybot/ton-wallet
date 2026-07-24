@@ -129,6 +129,57 @@ app.get<{ Params: { address: string } }>('/jettons/:address', async (request) =>
   return { jettons };
 });
 
+// NFT-коллекция владельца: tonapi. Возвращаем только то, что нужно UI —
+// адрес, имя, коллекцию, картинку (previews[0..N] отсортированы возрастанием,
+// берём среднюю ~500px). indirect_ownership=false исключает NFT'ы в
+// staking/маркетплейс контрактах, где владелец не мы. Приватного тут нет.
+interface TonapiNftItem {
+  address: string;
+  index: number;
+  metadata?: { name?: string; description?: string; image?: string };
+  previews?: Array<{ resolution: string; url: string }>;
+  collection?: { address: string; name?: string; description?: string };
+  trust?: string;
+  sale?: unknown; // если продаётся — не показываем как «мой» на дашборде
+}
+
+app.get<{ Params: { address: string } }>('/nfts/:address', async (request) => {
+  const address = encodeURIComponent(request.params.address);
+  const response = await fetch(
+    `${tonapiBase}/v2/accounts/${address}/nfts?indirect_ownership=false&limit=1000`,
+    {
+      headers: { ...(tonapiKey ? { authorization: `Bearer ${tonapiKey}` } : {}) },
+      signal: AbortSignal.timeout(toncenterTimeoutMs),
+    },
+  );
+  if (!response.ok) {
+    throw Object.assign(new Error(`tonapi HTTP ${response.status}`), {
+      statusCode: response.status === 429 ? 429 : 502,
+    });
+  }
+  const data = (await response.json()) as { nft_items?: TonapiNftItem[] };
+  const items = (data.nft_items ?? [])
+    .filter((n) => !n.sale) // выставленные на продажу — там владельцем формально маркетплейс
+    .map((n) => {
+      // Берём preview средней резолюции (для мобилки хватит ~500px),
+      // fallback: metadata.image, потом первый доступный preview.
+      const preview =
+        n.previews?.find((p) => p.resolution === '500x500') ??
+        n.previews?.find((p) => p.resolution === '1500x1500') ??
+        n.previews?.[0];
+      return {
+        address: n.address,
+        index: n.index,
+        name: n.metadata?.name ?? `#${n.index}`,
+        image: preview?.url ?? n.metadata?.image ?? null,
+        collectionAddress: n.collection?.address ?? null,
+        collectionName: n.collection?.name ?? null,
+        ...(n.trust ? { trust: n.trust } : {}),
+      };
+    });
+  return { items };
+});
+
 // Досье адреса для анти-скам карточки: только публичные данные toncenter.
 // Возраст/счётчик считаем по последним 50 tx: если их ровно 50 — счётчик «50+»,
 // а firstSeen — лишь нижняя граница возраста (txCountCapped=true).

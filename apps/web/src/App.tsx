@@ -3,6 +3,8 @@ import {
   analyzeRecipient,
   applyWarnings,
   buildJettonTransferBody,
+  buildNftTransferBody,
+  NFT_TRANSFER_ATTACHED_TON,
   buildSendTransactionError,
   buildSendTransactionSuccess,
   buildSimulationReport,
@@ -41,10 +43,12 @@ import {
   getAccount,
   getAddressIntel,
   getJettons,
+  getNfts,
   getTransactions,
   sendBoc,
   type AddressIntel,
   type JettonBalance,
+  type NftItem,
 } from './api.ts';
 import { AUTO_LOCK_MS, zeroizeSession, type Session } from './session.ts';
 import { TonConnectPanel, type DappTxRequest } from './TonConnectPanel.tsx';
@@ -953,12 +957,16 @@ function Dashboard(props: {
   const [error, setError] = useState<string | null>(null);
   const [book, setBook] = useState<AddressBookEntry[]>([]);
   const [jettons, setJettons] = useState<JettonBalance[]>([]);
+  const [nfts, setNfts] = useState<NftItem[]>([]);
   // 'TON' либо raw-адрес jetton master выбранного джеттона
   const [asset, setAsset] = useState('TON');
 
   useEffect(() => {
     getJettons(address.nonBounceable)
       .then((r) => setJettons(r.jettons))
+      .catch(() => {});
+    getNfts(address.nonBounceable)
+      .then((r) => setNfts(r.items))
       .catch(() => {});
   }, [address.nonBounceable, refreshTick]);
 
@@ -1274,6 +1282,7 @@ function Dashboard(props: {
       seqno={seqno}
       refreshTick={refreshTick}
       jettons={jettons}
+      nfts={nfts}
       book={book}
       favorites={favorites}
       asset={asset}
@@ -1315,6 +1324,7 @@ interface DashboardViewProps extends WalletManageProps {
   seqno: number;
   refreshTick: number;
   jettons: JettonBalance[];
+  nfts: NftItem[];
   book: AddressBookEntry[];
   favorites: FavoriteAddress[];
   asset: string;
@@ -1369,6 +1379,12 @@ function DashboardView(p: DashboardViewProps) {
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [walletsOpen, setWalletsOpen] = useState(false);
+  const [nftSend, setNftSend] = useState<NftItem | null>(null);
+  const [nftRecipient, setNftRecipient] = useState('');
+  const [nftComment, setNftComment] = useState('');
+  const [nftStatus, setNftStatus] = useState<'idle' | 'sending' | 'done'>('idle');
+  const [nftError, setNftError] = useState<string | null>(null);
+  const [nftScannerOpen, setNftScannerOpen] = useState(false);
 
   // «Отправить сюда» с профиля кладёт адрес в sessionStorage. Раньше эффект
   // жил в Dashboard-обёртке и только заполнял поле «Кому», но Send-шторку
@@ -1551,6 +1567,33 @@ function DashboardView(p: DashboardViewProps) {
           );
         })}
       </section>
+
+      {p.nfts.length > 0 && (
+        <section className="card">
+          <h3 className="card-title">NFT ({p.nfts.length})</h3>
+          <div className="nft-grid">
+            {p.nfts.map((n) => (
+              <button
+                key={n.address}
+                type="button"
+                className="nft-tile"
+                onClick={() => setNftSend(n)}
+                title={`${n.name} — отправить`}
+              >
+                {n.image ? (
+                  <img src={n.image} alt="" loading="lazy" className="nft-image" />
+                ) : (
+                  <div className="nft-image nft-placeholder">🖼</div>
+                )}
+                <div className="nft-caption">
+                  <div className="nft-name">{n.name}</div>
+                  {n.collectionName && <div className="nft-collection">{n.collectionName}</div>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Сервисы — свёрнуты в details, объединены секцией */}
       <section className="card">
@@ -1801,6 +1844,189 @@ function DashboardView(p: DashboardViewProps) {
           );
         })()}
       </BottomSheet>
+
+      {/* Отправка NFT: сообщение идёт на адрес NFT-item контракта, тело —
+          TEP-62 transfer#5fcc3d14, newOwner = получатель. */}
+      <BottomSheet
+        open={nftSend !== null}
+        onClose={() => {
+          if (nftStatus === 'sending') return;
+          setNftSend(null);
+          setNftRecipient('');
+          setNftComment('');
+          setNftStatus('idle');
+          setNftError(null);
+        }}
+        title="Отправить NFT"
+      >
+        {nftSend && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {nftSend.image ? (
+                <img
+                  src={nftSend.image}
+                  alt=""
+                  style={{ width: 72, height: 72, borderRadius: 12, objectFit: 'cover' }}
+                />
+              ) : (
+                <div className="nft-placeholder" style={{ width: 72, height: 72, borderRadius: 12 }}>🖼</div>
+              )}
+              <div>
+                <div style={{ fontWeight: 700 }}>{nftSend.name}</div>
+                {nftSend.collectionName && (
+                  <small style={{ color: 'var(--muted)' }}>{nftSend.collectionName}</small>
+                )}
+              </div>
+            </div>
+            <p style={{ margin: 0 }}>
+              <label htmlFor="nft-to">
+                <small>Кому (raw или friendly)</small>
+              </label>
+              <span style={{ display: 'flex', gap: 8, alignItems: 'stretch', marginTop: 4 }}>
+                <input
+                  id="nft-to"
+                  value={nftRecipient}
+                  onChange={(e) => setNftRecipient(e.target.value)}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mono"
+                  style={{ flex: 1, minWidth: 0 }}
+                  disabled={nftStatus === 'sending'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setNftScannerOpen(true)}
+                  aria-label="Сканировать QR"
+                  title="Сканировать QR"
+                  style={{ width: 44, padding: 0 }}
+                >
+                  <span style={{ width: 22, height: 22, display: 'inline-block' }}>
+                    <IconCamera />
+                  </span>
+                </button>
+              </span>
+            </p>
+            <p style={{ margin: 0 }}>
+              <label htmlFor="nft-comment">
+                <small>Комментарий (необязательно)</small>
+              </label>
+              <br />
+              <input
+                id="nft-comment"
+                value={nftComment}
+                onChange={(e) => setNftComment(e.target.value)}
+                disabled={nftStatus === 'sending'}
+                style={{ width: '100%' }}
+              />
+            </p>
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.85rem' }}>
+              К сообщению будет приложено {formatTonAmount(NFT_TRANSFER_ATTACHED_TON)} GRAM на
+              газ. Излишек вернётся тебе. Отправка на смарт-контракт (не на кошелёк-получателя
+              напрямую) — это норма TEP-62.
+            </p>
+            {nftError && <p className="severity-danger">Ошибка: {nftError}</p>}
+            {nftStatus === 'done' && (
+              <p className="severity-success">Отправлено и подтверждено.</p>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (nftStatus === 'sending') return;
+                  setNftSend(null);
+                  setNftRecipient('');
+                  setNftComment('');
+                  setNftStatus('idle');
+                  setNftError(null);
+                }}
+                disabled={nftStatus === 'sending'}
+                style={{ flex: 1 }}
+              >
+                {nftStatus === 'done' ? 'Закрыть' : 'Отмена'}
+              </button>
+              {nftStatus !== 'done' && (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={async () => {
+                    setNftError(null);
+                    if (!nftSend) return;
+                    const trimmed = nftRecipient.trim();
+                    if (trimmed.length === 0) {
+                      setNftError('Укажи адрес получателя');
+                      return;
+                    }
+                    setNftStatus('sending');
+                    try {
+                      const recipient = parseRecipientAddress(trimmed, NETWORK);
+                      const own = await p.refresh();
+                      const nftAddress = parseRecipientAddress(nftSend.address, NETWORK).address;
+                      const responseTo = parseRecipientAddress(
+                        p.address.nonBounceable,
+                        NETWORK,
+                      ).address;
+                      const body = buildNftTransferBody({
+                        newOwner: recipient.address,
+                        responseTo,
+                        ...(nftComment ? { comment: nftComment } : {}),
+                      });
+                      const transfer = createTransfer({
+                        keyPair: p.session.keyPair,
+                        version: p.version,
+                        network: NETWORK,
+                        seqno: own.seqno,
+                        to: nftAddress,
+                        amount: NFT_TRANSFER_ATTACHED_TON,
+                        bounce: true, // NFT-item — контракт, любые сбои должны вернуть газ
+                        body,
+                      });
+                      await sendBoc(transfer.bocBase64);
+                      // Ждём инкремента seqno — как в обычном send.
+                      const seqnoBefore = own.seqno;
+                      let confirmed = false;
+                      for (let i = 0; i < 40; i++) {
+                        await new Promise((r) => setTimeout(r, 3000));
+                        const info = await p.refresh();
+                        if (info.seqno > seqnoBefore) {
+                          confirmed = true;
+                          break;
+                        }
+                      }
+                      if (!confirmed) throw new Error('Не дождались подтверждения (2 мин)');
+                      setNftStatus('done');
+                      toast.push('success', 'NFT отправлен');
+                    } catch (e) {
+                      setNftStatus('idle');
+                      setNftError(e instanceof Error ? e.message : String(e));
+                    }
+                  }}
+                  disabled={nftStatus === 'sending'}
+                  style={{ flex: 2 }}
+                >
+                  {nftStatus === 'sending' ? 'Отправляем…' : 'Отправить'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+
+      {/* QR-сканер для NFT-отправки (отдельный от основного, чтобы не конфликтовать). */}
+      <QrScanner
+        open={nftScannerOpen}
+        onClose={() => setNftScannerOpen(false)}
+        onScan={(raw) => {
+          setNftScannerOpen(false);
+          const parsed = parseTonQr(raw);
+          if (!parsed) {
+            toast.push('danger', 'В QR нет TON-адреса');
+            return;
+          }
+          setNftRecipient(parsed.address);
+          toast.push('success', 'Адрес получен из QR');
+        }}
+      />
 
       {/* Кошельки: список, переключение, +добавить, переименовать, удалить. */}
       <BottomSheet open={walletsOpen} onClose={() => setWalletsOpen(false)} title="Кошельки">

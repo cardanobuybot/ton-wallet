@@ -30,6 +30,13 @@ export {
   JETTON_TRANSFER_OPCODE,
   type BuildJettonTransferBodyParams,
 } from './jetton.ts';
+export {
+  buildNftTransferBody,
+  NFT_FORWARD_TON,
+  NFT_TRANSFER_ATTACHED_TON,
+  NFT_TRANSFER_OPCODE,
+  type BuildNftTransferBodyParams,
+} from './nft.ts';
 export { parseRecipientAddress, formatAddress, type ParsedRecipient } from './address.ts';
 export {
   createRawTransfer,

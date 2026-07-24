@@ -872,12 +872,6 @@ function Dashboard(props: {
   }, []);
   useEffect(reloadFavorites, [reloadFavorites]);
 
-  // «Отправить сюда» с профиля кладёт адрес в sessionStorage → подхватываем сюда.
-  useEffect(() => {
-    const prefill = consumeSendPrefill();
-    if (prefill) setTo(prefill);
-  }, []);
-
   const refresh = useCallback(async () => {
     const info = await getAccount(address.nonBounceable);
     setBalance(BigInt(info.balance));
@@ -953,10 +947,15 @@ function Dashboard(props: {
       const emu = await emulate(transfer.bocBase64, address.raw).catch(() => null);
       // Эмулятор видит меньше денег, чем toncenter → его индексер отстал,
       // отказ недостоверен (EMULATOR_STALE вместо блокировки).
+      // Отказ эмулятора недостоверен, если tonapi-индексер отстал:
+      //   • балансе (у него меньше, чем показал toncenter), ИЛИ
+      //   • seqno (после свежей исходящей tx tonapi ещё видит старый seqno,
+      //     из-за чего валидная подпись выглядит невалидной → exit 133).
       const emulatorOutdated =
         emu?.rejected === true &&
-        emu.emulatorBalance !== undefined &&
-        BigInt(emu.emulatorBalance) < BigInt(own.balance);
+        ((emu.emulatorBalance !== undefined &&
+          BigInt(emu.emulatorBalance) < BigInt(own.balance)) ||
+          (emu.emulatorSeqno !== undefined && emu.emulatorSeqno < own.seqno));
       const report = applyWarnings(
         buildSimulationReport({
           event: emu?.ok ? (emu.event ?? null) : null,
@@ -1067,10 +1066,15 @@ function Dashboard(props: {
           : {}),
       });
       const emu = await emulate(transfer.bocBase64, address.raw).catch(() => null);
+      // Отказ эмулятора недостоверен, если tonapi-индексер отстал:
+      //   • балансе (у него меньше, чем показал toncenter), ИЛИ
+      //   • seqno (после свежей исходящей tx tonapi ещё видит старый seqno,
+      //     из-за чего валидная подпись выглядит невалидной → exit 133).
       const emulatorOutdated =
         emu?.rejected === true &&
-        emu.emulatorBalance !== undefined &&
-        BigInt(emu.emulatorBalance) < BigInt(own.balance);
+        ((emu.emulatorBalance !== undefined &&
+          BigInt(emu.emulatorBalance) < BigInt(own.balance)) ||
+          (emu.emulatorSeqno !== undefined && emu.emulatorSeqno < own.seqno));
       const label = book.find((e) => e.raw === recipientCp.raw)?.label;
       const report = applyWarnings(
         buildSimulationReport({
@@ -1240,6 +1244,20 @@ function DashboardView(p: DashboardViewProps) {
   const [sendOpen, setSendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+
+  // «Отправить сюда» с профиля кладёт адрес в sessionStorage. Раньше эффект
+  // жил в Dashboard-обёртке и только заполнял поле «Кому», но Send-шторку
+  // не открывал — юзер попадал в дашборд и не понимал, что произошло.
+  // Теперь: при монтировании DashboardView (после route.name = 'home' +
+  // screen.name = 'wallet') подхватываем префилл и автоматически открываем
+  // шторку отправки.
+  useEffect(() => {
+    const prefill = consumeSendPrefill();
+    if (prefill) {
+      p.setTo(prefill);
+      setSendOpen(true);
+    }
+  }, []);
 
   // Открываем шторку отправки, если запустился confirm (в т.ч. по запросу от dApp).
   useEffect(() => {

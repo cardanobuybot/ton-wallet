@@ -187,31 +187,53 @@ app.post<{ Body: { boc: string; senderAddress?: string } }>('/emulate', async (r
   });
   if (response.status >= 400 && response.status < 500) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
-    // Баланс отправителя глазами tonapi: клиент сравнит его с балансом по
-    // toncenter, чтобы распознать отставший индексер (ложный отказ эмулятора).
+    // Баланс и seqno отправителя глазами tonapi: клиент сравнит их с
+    // toncenter, чтобы распознать отставший индексер (ложный отказ
+    // эмулятора). Раньше проверяли только баланс — но балансы могут совпасть,
+    // а seqno у tonapi отставать (после свежей исходящей tx это как раз
+    // и приводило к EMULATION_REJECTED exit_code=133 «invalid_signature»
+    // на следующую отправку).
     let emulatorBalance: string | undefined;
+    let emulatorSeqno: number | undefined;
     if (request.body.senderAddress) {
-      try {
-        const acc = await fetch(
-          `${tonapiBase}/v2/accounts/${encodeURIComponent(request.body.senderAddress)}`,
-          {
-            headers: { ...(tonapiKey ? { authorization: `Bearer ${tonapiKey}` } : {}) },
-            signal: AbortSignal.timeout(toncenterTimeoutMs),
-          },
-        );
-        if (acc.ok) {
-          const info = (await acc.json()) as { balance: number | string };
-          emulatorBalance = String(info.balance);
-        }
-      } catch {
-        // недоступно — просто не прикладываем баланс
-      }
+      const sender = encodeURIComponent(request.body.senderAddress);
+      await Promise.all([
+        (async () => {
+          try {
+            const acc = await fetch(`${tonapiBase}/v2/accounts/${sender}`, {
+              headers: { ...(tonapiKey ? { authorization: `Bearer ${tonapiKey}` } : {}) },
+              signal: AbortSignal.timeout(toncenterTimeoutMs),
+            });
+            if (acc.ok) {
+              const info = (await acc.json()) as { balance: number | string };
+              emulatorBalance = String(info.balance);
+            }
+          } catch {
+            /* baseline check only, недоступность не критична */
+          }
+        })(),
+        (async () => {
+          try {
+            const s = await fetch(`${tonapiBase}/v2/wallet/${sender}/seqno`, {
+              headers: { ...(tonapiKey ? { authorization: `Bearer ${tonapiKey}` } : {}) },
+              signal: AbortSignal.timeout(toncenterTimeoutMs),
+            });
+            if (s.ok) {
+              const info = (await s.json()) as { seqno: number };
+              if (typeof info.seqno === 'number') emulatorSeqno = info.seqno;
+            }
+          } catch {
+            /* baseline check only, недоступность не критична */
+          }
+        })(),
+      ]);
     }
     return {
       ok: false,
       rejected: true,
       error: data.error ?? `tonapi ${response.status}`,
       ...(emulatorBalance !== undefined ? { emulatorBalance } : {}),
+      ...(emulatorSeqno !== undefined ? { emulatorSeqno } : {}),
     };
   }
   if (!response.ok) {

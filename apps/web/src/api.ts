@@ -70,6 +70,7 @@ export const emulate = (boc: string, senderAddress: string) =>
     rejected?: boolean;
     error?: string;
     emulatorBalance?: string;
+    emulatorSeqno?: number;
   }>(`/emulate`, { boc, senderAddress });
 
 // ---------- Соц-эндпоинты (спринт 9) ----------

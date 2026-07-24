@@ -529,36 +529,42 @@ const SEVERITY_COLOR: Record<Severity, string> = {
 
 function SimulationView(props: { report: SimulationReport }) {
   const { report } = props;
-  const rejected = report.warnings.some((w) => w.code === 'EMULATION_REJECTED');
+  // Danger — всегда на виду, безопасность важнее лаконичности.
+  // Warn/info — под «Подробнее», чтобы обычному пользователю не мозолить
+  // техническими предупреждениями («эмулятор», «bounce», «dry-run»…).
+  const dangers = report.warnings.filter((w) => w.severity === 'danger');
+  const notes = report.warnings.filter((w) => w.severity !== 'danger');
+  const verdictLine =
+    report.verdict === 'danger'
+      ? 'Отправка заблокирована'
+      : report.verdict === 'warn'
+        ? 'Можно отправлять — сверься с деталями ниже'
+        : 'Готово к отправке';
   return (
-    <div style={{ border: '1px solid #ccc', padding: 8, margin: '8px 0' }}>
-      <p style={{ margin: '0 0 4px' }}>
-        <b>Симуляция:</b>{' '}
-        {report.emulated
-          ? 'выполнена (tonapi emulate)'
-          : rejected
-            ? 'эмулятор отверг транзакцию'
-            : 'недоступна — оценка по dry-run'}
+    <div style={{ border: '1px solid #ccc', padding: 10, margin: '8px 0' }}>
+      <p style={{ margin: 0, color: report.verdict === 'ok' ? '#1a7f37' : report.verdict === 'warn' ? SEVERITY_COLOR.warn : SEVERITY_COLOR.danger }}>
+        <b>{verdictLine}</b>
       </p>
-      <p style={{ margin: '0 0 4px' }}>
-        Изменение баланса: <b>{formatTonAmount(report.balanceChange)} GRAM</b> (комиссии ~
-        {formatTonAmount(report.fees)} GRAM)
+      <p style={{ margin: '4px 0 0', color: '#666', fontSize: '0.85rem' }}>
+        Комиссия сети: ~{formatTonAmount(report.fees)} GRAM
       </p>
-      {report.actions.map((a, i) => (
-        <p key={i} style={{ margin: '0 0 4px' }}>
-          {a.type}: {a.description}
-          {a.amount !== undefined && <> — {formatTonAmount(a.amount)} GRAM</>}
+      {dangers.map((w) => (
+        <p key={w.code} style={{ margin: '6px 0 0', color: SEVERITY_COLOR.danger }}>
+          ⛔ {w.message}
         </p>
       ))}
-      {report.warnings.map((w) => (
-        <p key={w.code} style={{ margin: '0 0 4px', color: SEVERITY_COLOR[w.severity] }}>
-          [{w.severity}] {w.message}
-        </p>
-      ))}
-      {report.verdict === 'danger' && (
-        <p style={{ margin: 0, color: SEVERITY_COLOR.danger }}>
-          <b>Отправка заблокирована: симуляция нашла критичную проблему.</b>
-        </p>
+      {notes.length > 0 && (
+        <details style={{ marginTop: 6 }}>
+          <summary style={{ cursor: 'pointer', color: '#666', fontSize: '0.85rem' }}>
+            Подробнее ({notes.length})
+          </summary>
+          {notes.map((w) => (
+            <p key={w.code} style={{ margin: '4px 0 0', color: SEVERITY_COLOR[w.severity] }}>
+              {w.severity === 'warn' ? '⚠ ' : ''}
+              {w.message}
+            </p>
+          ))}
+        </details>
       )}
     </div>
   );
@@ -572,32 +578,21 @@ function RecipientCard(props: { intel: AddressIntel | null; label?: string }) {
       : null;
   return (
     <div style={{ border: '1px solid #ccc', padding: 8, margin: '8px 0' }}>
-      <p style={{ margin: '0 0 4px' }}>
+      <p style={{ margin: 0 }}>
         <b>Получатель:</b>{' '}
         {label !== undefined ? (
           <span className="severity-success">«{label}» (из адресной книги)</span>
+        ) : intel === null ? (
+          'неизвестный адрес'
+        ) : intel.txCount === 0 ? (
+          <span style={{ color: '#a76b00' }}>совершенно новый (0 транзакций)</span>
         ) : (
-          'нет в адресной книге'
+          <span>
+            активен {days !== null ? `${days} дн.` : ''}
+            {intel.txCount > 0 ? ` · ${intel.txCount}${intel.txCountCapped ? '+' : ''} транзакций` : ''}
+          </span>
         )}
       </p>
-      {intel === null ? (
-        <p style={{ margin: 0, color: '#666' }}>Досье адреса недоступно.</p>
-      ) : (
-        <p style={{ margin: 0 }}>
-          {intel.firstSeen != null ? (
-            <>
-              Первая транзакция: {new Date(intel.firstSeen * 1000).toLocaleDateString()}
-              {days !== null && <> ({days} дн. назад{intel.txCountCapped ? ' или раньше' : ''})</>}
-            </>
-          ) : (
-            'Транзакций у адреса не видно'
-          )}
-          {' · '}транзакций: {intel.txCount}
-          {intel.txCountCapped ? '+' : ''}
-          {' · '}
-          {intel.deployed ? 'задеплоен' : 'не задеплоен'}
-        </p>
-      )}
     </div>
   );
 }
@@ -841,6 +836,11 @@ function Dashboard(props: {
   const { session, address, version } = props;
   const [balance, setBalance] = useState<bigint | null>(null);
   const [seqno, setSeqno] = useState(0);
+  // Bump-счётчик: увеличивается на каждый успешный refresh(). История и
+  // список джеттонов перезагружаются по нему, а не по seqno — иначе
+  // входящие транзакции никак не подхватывались (seqno меняет только
+  // исходящая), и «Обновить» не приносил свежих данных до перезагрузки.
+  const [refreshTick, setRefreshTick] = useState(0);
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
@@ -855,7 +855,7 @@ function Dashboard(props: {
     getJettons(address.nonBounceable)
       .then((r) => setJettons(r.jettons))
       .catch(() => {});
-  }, [address.nonBounceable, seqno]);
+  }, [address.nonBounceable, refreshTick]);
 
   const reloadBook = useCallback(() => {
     listAddressBook()
@@ -876,6 +876,7 @@ function Dashboard(props: {
     const info = await getAccount(address.nonBounceable);
     setBalance(BigInt(info.balance));
     setSeqno(info.seqno);
+    setRefreshTick((t) => t + 1);
     return info;
   }, [address.nonBounceable]);
 
@@ -1157,6 +1158,7 @@ function Dashboard(props: {
       version={version}
       balance={balance}
       seqno={seqno}
+      refreshTick={refreshTick}
       jettons={jettons}
       book={book}
       favorites={favorites}
@@ -1190,6 +1192,7 @@ interface DashboardViewProps {
   version: WalletVersion;
   balance: bigint | null;
   seqno: number;
+  refreshTick: number;
   jettons: JettonBalance[];
   book: AddressBookEntry[];
   favorites: FavoriteAddress[];
@@ -1433,7 +1436,7 @@ function DashboardView(p: DashboardViewProps) {
       {/* История */}
       <History
         address={p.address}
-        reloadKey={p.seqno}
+        reloadKey={p.refreshTick}
         labels={new Map(p.book.map((e) => [e.raw, e.label]))}
         jettons={p.jettons}
       />

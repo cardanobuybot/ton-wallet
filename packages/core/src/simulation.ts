@@ -117,14 +117,13 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
         severity: 'warn',
         code: 'EMULATOR_STALE',
         message:
-          'Эмулятор отстаёт от сети и не видит текущий баланс — его отказ недостоверен. ' +
-          'Показана только оценка комиссии. Отправляй, только если уверен.',
+          'Данные на индексаторе слегка устарели — пред-проверку сделать не удалось. Если уверен в получателе и сумме — отправляй.',
       });
     } else {
       warnings.push({
         severity: 'danger',
         code: 'EMULATION_REJECTED',
-        message: `Эмулятор отверг транзакцию — она не исполнится в сети. ${params.rejectionError}`,
+        message: `Транзакция не пройдёт в сети: ${params.rejectionError}`,
       });
     }
   } else if (params.event === null) {
@@ -132,7 +131,7 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
       severity: 'warn',
       code: 'SIMULATION_UNAVAILABLE',
       message:
-        'Симуляция недоступна — показана только оценка комиссии. Отправляй, только если уверен.',
+        'Пред-проверка недоступна — показана только оценка комиссии. Проверь получателя ещё раз перед отправкой.',
     });
   } else {
     emulated = true;
@@ -207,7 +206,7 @@ export function buildSimulationReport(params: BuildReportParams): SimulationRepo
     warnings.push({
       severity: 'info',
       code: 'RECIPIENT_NOT_DEPLOYED',
-      message: 'Кошелёк получателя ещё не задеплоен — это нормально для нового адреса (bounce отключён).',
+      message: 'Отправляешь новому адресу (получатель никогда ничего не получал).',
     });
   }
 

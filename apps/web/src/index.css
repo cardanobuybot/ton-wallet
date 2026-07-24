@@ -684,28 +684,6 @@ fieldset > p > button:first-child:hover:not(:disabled) { filter: brightness(1.1)
 }
 .nft-tile:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-1px); }
 .nft-image {
-  width: 100
-.nft-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 10px;
-  margin-top: 8px;
-}
-.nft-tile {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 8px;
-  cursor: pointer;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--fg);
-  transition: transform 0.1s, border-color 0.15s;
-}
-.nft-tile:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-1px); }
-.nft-image {
   width: 100%;
   aspect-ratio: 1 / 1;
   object-fit: cover;

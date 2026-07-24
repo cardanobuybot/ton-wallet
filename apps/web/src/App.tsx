@@ -61,21 +61,22 @@ import { useToast } from './ui/Toast.tsx';
 import { IconCamera, IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
 import { QrScanner } from './ui/QrScanner.tsx';
 import {
+  addWallet,
   deleteAddressBookEntry,
-  deleteEnvelope,
   deleteFavorite,
   listAddressBook,
   listFavorites,
+  listWallets,
   isStoragePersisted,
-  loadEnvelope,
-  loadWalletVersion,
+  removeWallet,
+  renameWallet,
   requestPersistentStorage,
   saveAddressBookEntry,
-  saveEnvelope,
   saveFavorite,
-  saveWalletVersion,
+  switchActiveWallet,
   type AddressBookEntry,
   type FavoriteAddress,
+  type WalletsState,
 } from './storage.ts';
 
 const NETWORK = 'testnet' as const;
@@ -115,7 +116,16 @@ export function App() {
   const route = useRoute();
   // null — ещё не знаем; false — браузер может выселить IndexedDB при нехватке места
   const [persisted, setPersisted] = useState<boolean | null>(null);
+  const [walletsState, setWalletsState] = useState<WalletsState>({ wallets: [], activeId: null });
   const sessionRef = useRef<Session | null>(null);
+
+  const reloadWallets = useCallback(async (): Promise<WalletsState> => {
+    const state = await listWallets();
+    setWalletsState(state);
+    return state;
+  }, []);
+
+  const activeWallet = walletsState.wallets.find((w) => w.id === walletsState.activeId) ?? null;
 
   const lock = useCallback(() => {
     if (sessionRef.current) {
@@ -126,11 +136,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    loadEnvelope()
-      .then((env) => setScreen(env ? { name: 'locked' } : { name: 'setup' }))
+    reloadWallets()
+      .then((state) =>
+        setScreen(state.wallets.length > 0 ? { name: 'locked' } : { name: 'setup' }),
+      )
       .catch((e) => setError(String(e)));
     void isStoragePersisted().then(setPersisted);
-  }, []);
+  }, [reloadWallets]);
 
   // Автолок: 5 минут без активности пользователя → занулить ключи.
   useEffect(() => {
@@ -255,8 +267,18 @@ export function App() {
           onSubmit={(password) =>
             guard(async () => {
               if (password.length < 8) throw new Error('Пароль короче 8 символов');
-              await saveEnvelope(await encryptMnemonic(screen.mnemonic, password));
-              await saveWalletVersion(screen.version);
+              // Обнуляем прошлую сессию до добавления кошелька: раньше здесь
+              // жила расшифрованная мнемоника ДРУГОГО кошелька, если мы
+              // добавляем новый через switcher.
+              if (sessionRef.current) {
+                zeroizeSession(sessionRef.current);
+                sessionRef.current = null;
+              }
+              const envelope = await encryptMnemonic(screen.mnemonic, password);
+              const nextIndex = walletsState.wallets.length + 1;
+              const label = walletsState.wallets.length === 0 ? 'Мой кошелёк' : `Кошелёк ${nextIndex}`;
+              await addWallet({ label, envelope, version: screen.version, setActive: true });
+              await reloadWallets();
               setPersisted(await requestPersistentStorage());
               await openWallet(screen.mnemonic, screen.version);
             })
@@ -266,36 +288,78 @@ export function App() {
 
       {route.name === 'home' && screen.name === 'locked' && (
         <>
+          {activeWallet !== null && (
+            <p style={{ textAlign: 'center', color: 'var(--muted)', margin: '0 0 8px' }}>
+              Кошелёк: <b style={{ color: 'var(--fg)' }}>{activeWallet.label}</b>
+            </p>
+          )}
           <PasswordForm
             label="Введи пароль"
             submitText="Разблокировать"
             onSubmit={(password) =>
               guard(async () => {
-                const envelope = await loadEnvelope();
-                if (!envelope) {
+                const wallet = activeWallet;
+                if (!wallet) {
                   setScreen({ name: 'setup' });
                   return;
                 }
-                const stored = await loadWalletVersion();
-                const version = (IMPORTABLE_VERSIONS as readonly string[]).includes(stored ?? '')
-                  ? (stored as WalletVersion)
+                const version = (IMPORTABLE_VERSIONS as readonly string[]).includes(wallet.version)
+                  ? (wallet.version as WalletVersion)
                   : 'v5r1';
-                await openWallet(await decryptMnemonic(envelope, password), version);
+                await openWallet(await decryptMnemonic(wallet.envelope, password), version);
               })
             }
           />
+          {walletsState.wallets.length > 1 && (
+            <details style={{ marginTop: 8 }}>
+              <summary>Другой кошелёк ({walletsState.wallets.length - 1})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                {walletsState.wallets
+                  .filter((w) => w.id !== walletsState.activeId)
+                  .map((w) => (
+                    <button
+                      key={w.id}
+                      onClick={() =>
+                        guard(async () => {
+                          await switchActiveWallet(w.id);
+                          await reloadWallets();
+                        })
+                      }
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+              </div>
+            </details>
+          )}
           <p>
+            <button onClick={() => setScreen({ name: 'setup' })} style={{ marginRight: 8 }}>
+              + Добавить кошелёк
+            </button>
             <button
               onClick={() =>
                 guard(async () => {
-                  if (confirm('Удалить кошелёк с устройства? Без мнемоники доступ не вернуть.')) {
-                    await deleteEnvelope();
+                  const wallet = activeWallet;
+                  if (!wallet) return;
+                  if (
+                    !confirm(
+                      `Удалить «${wallet.label}» с устройства? Без мнемоники доступ не вернуть.`,
+                    )
+                  ) {
+                    return;
+                  }
+                  const { activeId } = await removeWallet(wallet.id);
+                  const next = await reloadWallets();
+                  if (next.wallets.length === 0 || activeId === null) {
                     setScreen({ name: 'setup' });
+                  } else {
+                    // Остались другие — остаёмся на locked, новый активный.
+                    setScreen({ name: 'locked' });
                   }
                 })
               }
             >
-              Удалить кошелёк с устройства
+              Удалить активный
             </button>
           </p>
         </>
@@ -316,6 +380,30 @@ export function App() {
           address={screen.address}
           version={screen.version}
           onLock={lock}
+          walletLabel={activeWallet?.label ?? 'Кошелёк'}
+          walletsSummary={walletsState.wallets.map((w) => ({ id: w.id, label: w.label }))}
+          activeWalletId={walletsState.activeId ?? ''}
+          onSwitchWallet={async (id) => {
+            await switchActiveWallet(id);
+            await reloadWallets();
+            lock();
+          }}
+          onAddWallet={() => {
+            lock();
+            setScreen({ name: 'setup' });
+          }}
+          onRenameActive={async (label) => {
+            if (!activeWallet) return;
+            await renameWallet(activeWallet.id, label);
+            await reloadWallets();
+          }}
+          onRemoveActive={async () => {
+            if (!activeWallet) return;
+            const { activeId } = await removeWallet(activeWallet.id);
+            const next = await reloadWallets();
+            lock();
+            if (next.wallets.length === 0 || activeId === null) setScreen({ name: 'setup' });
+          }}
         />
       )}
     </main>
@@ -829,12 +917,27 @@ type SendState =
   | { step: 'waiting'; pending: PendingSend }
   | { step: 'done' };
 
+interface WalletSummary {
+  id: string;
+  label: string;
+}
+
+interface WalletManageProps {
+  walletLabel: string;
+  walletsSummary: WalletSummary[];
+  activeWalletId: string;
+  onSwitchWallet: (id: string) => Promise<void>;
+  onAddWallet: () => void;
+  onRenameActive: (label: string) => Promise<void>;
+  onRemoveActive: () => Promise<void>;
+}
+
 function Dashboard(props: {
   session: Session;
   address: WalletAddress;
   version: WalletVersion;
   onLock: () => void;
-}) {
+} & WalletManageProps) {
   const { session, address, version } = props;
   const [balance, setBalance] = useState<bigint | null>(null);
   const [seqno, setSeqno] = useState(0);
@@ -1193,11 +1296,18 @@ function Dashboard(props: {
       reloadBook={reloadBook}
       reloadFavorites={reloadFavorites}
       explorer={explorer}
+      walletLabel={props.walletLabel}
+      walletsSummary={props.walletsSummary}
+      activeWalletId={props.activeWalletId}
+      onSwitchWallet={props.onSwitchWallet}
+      onAddWallet={props.onAddWallet}
+      onRenameActive={props.onRenameActive}
+      onRemoveActive={props.onRemoveActive}
     />
   );
 }
 
-interface DashboardViewProps {
+interface DashboardViewProps extends WalletManageProps {
   session: Session;
   address: WalletAddress;
   version: WalletVersion;
@@ -1258,6 +1368,7 @@ function DashboardView(p: DashboardViewProps) {
   const [sendOpen, setSendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [walletsOpen, setWalletsOpen] = useState(false);
 
   // «Отправить сюда» с профиля кладёт адрес в sessionStorage. Раньше эффект
   // жил в Dashboard-обёртке и только заполнял поле «Кому», но Send-шторку
@@ -1344,6 +1455,16 @@ function DashboardView(p: DashboardViewProps) {
 
       {/* Герой */}
       <section className="hero">
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <button
+            type="button"
+            className="wallet-switch"
+            onClick={() => setWalletsOpen(true)}
+            aria-label="Переключить кошелёк"
+          >
+            {p.walletLabel} {p.walletsSummary.length > 1 ? '▾' : '⋯'}
+          </button>
+        </div>
         <div className="balance-label">Баланс</div>
         <HeroBalance nano={p.balance} />
         <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>
@@ -1679,6 +1800,93 @@ function DashboardView(p: DashboardViewProps) {
             </fieldset>
           );
         })()}
+      </BottomSheet>
+
+      {/* Кошельки: список, переключение, +добавить, переименовать, удалить. */}
+      <BottomSheet open={walletsOpen} onClose={() => setWalletsOpen(false)} title="Кошельки">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {p.walletsSummary.map((w) => {
+            const isActive = w.id === p.activeWalletId;
+            return (
+              <button
+                key={w.id}
+                type="button"
+                onClick={async () => {
+                  setWalletsOpen(false);
+                  if (!isActive) {
+                    try {
+                      await p.onSwitchWallet(w.id);
+                    } catch (e) {
+                      toast.push('danger', e instanceof Error ? e.message : String(e));
+                    }
+                  }
+                }}
+                style={{
+                  textAlign: 'left',
+                  fontWeight: isActive ? 700 : 400,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                }}
+                disabled={isActive}
+              >
+                <span>{w.label}</span>
+                {isActive && <span style={{ color: 'var(--muted)' }}>активный</span>}
+              </button>
+            );
+          })}
+        </div>
+        <hr style={{ margin: '12px 0', border: 0, borderTop: '1px solid var(--line)' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              setWalletsOpen(false);
+              p.onAddWallet();
+            }}
+          >
+            + Добавить кошелёк
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const label = window.prompt('Новое имя активного кошелька:', p.walletLabel);
+              if (label === null) return;
+              const trimmed = label.trim();
+              if (trimmed.length === 0) return;
+              try {
+                await p.onRenameActive(trimmed);
+                toast.push('success', 'Переименовано');
+              } catch (e) {
+                toast.push('danger', e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            Переименовать «{p.walletLabel}»
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              if (
+                !window.confirm(
+                  `Удалить «${p.walletLabel}» с этого устройства? Без записанной мнемоники доступ не вернуть.`,
+                )
+              ) {
+                return;
+              }
+              setWalletsOpen(false);
+              try {
+                await p.onRemoveActive();
+              } catch (e) {
+                toast.push('danger', e instanceof Error ? e.message : String(e));
+              }
+            }}
+            className="severity-danger"
+            style={{ background: 'transparent' }}
+          >
+            Удалить «{p.walletLabel}» с устройства
+          </button>
+        </div>
       </BottomSheet>
 
       {/* QR-сканер камерой: раскодированный текст парсится как TON-адрес или

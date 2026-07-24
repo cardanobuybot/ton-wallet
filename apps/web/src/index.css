@@ -649,3 +649,16 @@ fieldset > p > button:first-child:hover:not(:disabled) { filter: brightness(1.1)
   font-size: 0.9rem;
 }
 .install-banner small { color: var(--muted); }
+
+.wallet-switch {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 6px;
+  transition: background 0.15s;
+}
+.wallet-switch:hover { background: rgba(255,255,255,0.05); }

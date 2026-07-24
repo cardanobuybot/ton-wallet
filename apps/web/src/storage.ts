@@ -4,7 +4,15 @@ import type { KeystoreEnvelope, TonConnectSession } from '@ton-wallet/core';
 
 const DB_NAME = 'ton-wallet';
 const STORE = 'keystore';
-const KEY = 'envelope';
+// Мультикошелёк (v5): вместо одиночного 'envelope' — массив StoredWallet
+// под ключом 'wallets', плюс 'activeId' указывает на активный. Легаси-ключи
+// 'envelope' и 'walletVersion' автомигрируются в один StoredWallet в
+// onupgradeneeded — так что существующим юзерам ничего не надо делать.
+const WALLETS_KEY = 'wallets';
+const ACTIVE_ID_KEY = 'activeId';
+// Легаси-ключи, оставлены только для миграции.
+const LEGACY_ENV_KEY = 'envelope';
+const LEGACY_VERSION_KEY = 'walletVersion';
 // Адресная книга: только метки и адреса (публичные данные), ключ — raw-адрес
 const BOOK_STORE = 'address-book';
 // TON Connect: сессии моста (x25519 сессионные ключи, НЕ ключи кошелька), ключ — client_id dApp
@@ -14,17 +22,52 @@ const FAV_STORE = 'favorites';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 4);
-    req.onupgradeneeded = () => {
+    const req = indexedDB.open(DB_NAME, 5);
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const tx = req.transaction!;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
       if (!db.objectStoreNames.contains(BOOK_STORE)) db.createObjectStore(BOOK_STORE);
       if (!db.objectStoreNames.contains(TC_STORE)) db.createObjectStore(TC_STORE);
       if (!db.objectStoreNames.contains(FAV_STORE)) db.createObjectStore(FAV_STORE);
+
+      // v4 → v5: миграция единичного envelope → массив wallets. Идемпотентно.
+      const oldVersion = event.oldVersion ?? 0;
+      if (oldVersion > 0 && oldVersion < 5) {
+        const store = tx.objectStore(STORE);
+        const envReq = store.get(LEGACY_ENV_KEY);
+        envReq.onsuccess = () => {
+          const legacyEnv = envReq.result as KeystoreEnvelope | undefined;
+          if (!legacyEnv) return;
+          const verReq = store.get(LEGACY_VERSION_KEY);
+          verReq.onsuccess = () => {
+            const legacyVer = (verReq.result as string | undefined) ?? 'v5r1';
+            const id = makeId();
+            const wallet: StoredWallet = {
+              id,
+              label: 'Мой кошелёк',
+              envelope: legacyEnv,
+              version: legacyVer,
+              createdAt: Date.now(),
+            };
+            store.put([wallet], WALLETS_KEY);
+            store.put(id, ACTIVE_ID_KEY);
+            store.delete(LEGACY_ENV_KEY);
+            store.delete(LEGACY_VERSION_KEY);
+          };
+        };
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+function makeId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `w_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
@@ -34,40 +77,136 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
-export async function saveEnvelope(envelope: KeystoreEnvelope): Promise<void> {
-  const db = await openDb();
-  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(envelope, KEY));
-  db.close();
+// ---------- Мультикошелёк API ----------
+
+export interface StoredWallet {
+  id: string;
+  label: string;
+  envelope: KeystoreEnvelope;
+  /** WalletVersion — храним как строку, чтобы не таскать union в storage-слое. */
+  version: string;
+  createdAt: number;
 }
 
-export async function loadEnvelope(): Promise<KeystoreEnvelope | null> {
-  const db = await openDb();
-  const result = await request(db.transaction(STORE, 'readonly').objectStore(STORE).get(KEY));
-  db.close();
-  return (result as KeystoreEnvelope | undefined) ?? null;
+export interface WalletsState {
+  wallets: StoredWallet[];
+  activeId: string | null;
 }
 
-export async function deleteEnvelope(): Promise<void> {
+export async function listWallets(): Promise<WalletsState> {
+  const db = await openDb();
+  const store = db.transaction(STORE, 'readonly').objectStore(STORE);
+  const [wallets, activeId] = await Promise.all([
+    request(store.get(WALLETS_KEY)),
+    request(store.get(ACTIVE_ID_KEY)),
+  ]);
+  db.close();
+  return {
+    wallets: (wallets as StoredWallet[] | undefined) ?? [],
+    activeId: (activeId as string | undefined) ?? null,
+  };
+}
+
+/**
+ * Добавить кошелёк (создание или импорт). Возвращает StoredWallet.
+ * По умолчанию новый кошелёк становится активным (нормально для create-flow).
+ * Пропуск через IndexedDB — атомарный put массива + activeId в одной tx.
+ */
+export async function addWallet(input: {
+  label: string;
+  envelope: KeystoreEnvelope;
+  version: string;
+  setActive?: boolean;
+}): Promise<StoredWallet> {
+  const { wallets } = await listWallets();
+  const stored: StoredWallet = {
+    id: makeId(),
+    label: input.label,
+    envelope: input.envelope,
+    version: input.version,
+    createdAt: Date.now(),
+  };
+  const next = [...wallets, stored];
   const db = await openDb();
   const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
-  await Promise.all([request(store.delete(KEY)), request(store.delete(VERSION_KEY))]);
+  const puts: Promise<unknown>[] = [request(store.put(next, WALLETS_KEY))];
+  if (input.setActive !== false) puts.push(request(store.put(stored.id, ACTIVE_ID_KEY)));
+  await Promise.all(puts);
+  db.close();
+  return stored;
+}
+
+export async function switchActiveWallet(id: string): Promise<void> {
+  const db = await openDb();
+  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(id, ACTIVE_ID_KEY));
   db.close();
 }
 
-// Версия контракта кошелька (v5r1/v4r2/v3r2) — публичная настройка, не секрет
-const VERSION_KEY = 'walletVersion';
+export async function renameWallet(id: string, label: string): Promise<void> {
+  const { wallets } = await listWallets();
+  const next = wallets.map((w) => (w.id === id ? { ...w, label } : w));
+  const db = await openDb();
+  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(next, WALLETS_KEY));
+  db.close();
+}
+
+/** Удаляет кошелёк. Если был активным — активным становится первый оставшийся, либо null. */
+export async function removeWallet(id: string): Promise<{ activeId: string | null }> {
+  const { wallets, activeId } = await listWallets();
+  const next = wallets.filter((w) => w.id !== id);
+  let newActive: string | null = activeId;
+  if (activeId === id) newActive = next[0]?.id ?? null;
+  const db = await openDb();
+  const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+  const ops: Promise<unknown>[] = [request(store.put(next, WALLETS_KEY))];
+  if (newActive === null) ops.push(request(store.delete(ACTIVE_ID_KEY)));
+  else ops.push(request(store.put(newActive, ACTIVE_ID_KEY)));
+  await Promise.all(ops);
+  db.close();
+  return { activeId: newActive };
+}
+
+// ---------- Compat: legacy API поверх активного кошелька ----------
+// Оставлено, чтобы остальной код (unlock, saveEnvelope в create-flow) мог
+// плавно перейти на новую схему без one-shot переписи всего App.tsx.
+
+export async function loadEnvelope(): Promise<KeystoreEnvelope | null> {
+  const { wallets, activeId } = await listWallets();
+  const w = wallets.find((x) => x.id === activeId);
+  return w?.envelope ?? null;
+}
+
+export async function saveEnvelope(envelope: KeystoreEnvelope): Promise<void> {
+  const { wallets, activeId } = await listWallets();
+  if (activeId === null) {
+    throw new Error('Нет активного кошелька для saveEnvelope — используй addWallet');
+  }
+  const next = wallets.map((w) => (w.id === activeId ? { ...w, envelope } : w));
+  const db = await openDb();
+  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(next, WALLETS_KEY));
+  db.close();
+}
+
+/** Удаляет АКТИВНЫЙ кошелёк. Если был последним — activeId → null. */
+export async function deleteEnvelope(): Promise<void> {
+  const { activeId } = await listWallets();
+  if (activeId === null) return;
+  await removeWallet(activeId);
+}
 
 export async function saveWalletVersion(version: string): Promise<void> {
+  const { wallets, activeId } = await listWallets();
+  if (activeId === null) return;
+  const next = wallets.map((w) => (w.id === activeId ? { ...w, version } : w));
   const db = await openDb();
-  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(version, VERSION_KEY));
+  await request(db.transaction(STORE, 'readwrite').objectStore(STORE).put(next, WALLETS_KEY));
   db.close();
 }
 
 export async function loadWalletVersion(): Promise<string | null> {
-  const db = await openDb();
-  const result = await request(db.transaction(STORE, 'readonly').objectStore(STORE).get(VERSION_KEY));
-  db.close();
-  return (result as string | undefined) ?? null;
+  const { wallets, activeId } = await listWallets();
+  const w = wallets.find((x) => x.id === activeId);
+  return w?.version ?? null;
 }
 
 // Просим браузер пометить хранилище как невыселяемое: без этого IndexedDB

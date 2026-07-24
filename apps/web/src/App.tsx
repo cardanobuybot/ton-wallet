@@ -1487,12 +1487,15 @@ function DashboardView(p: DashboardViewProps) {
                 style={{ width: '100%' }}
               >
                 <option value="TON">GRAM (нативный)</option>
-                {p.jettons.map((j) => (
-                  <option key={j.jettonMaster} value={j.jettonMaster}>
-                    {j.symbol ?? j.name ?? j.jettonMaster.slice(0, 10)} (
-                    {formatTokenAmount(BigInt(j.balance), j.decimals)})
-                  </option>
-                ))}
+                {p.jettons.map((j) => {
+                  const sym = j.symbol ?? j.name ?? j.jettonMaster.slice(0, 10);
+                  const bal = formatTokenAmount(BigInt(j.balance), j.decimals);
+                  return (
+                    <option key={j.jettonMaster} value={j.jettonMaster}>
+                      {bal} {sym}
+                    </option>
+                  );
+                })}
               </select>
             </p>
             <p style={{ margin: '8px 0 6px' }}>

@@ -132,6 +132,33 @@ export function NotificationsCard(props: {
     }
   }
 
+  // Диагностика: показать нотификацию напрямую через SW registration, минуя
+  // FCM/сервер. Если этот тест НЕ показывает уведомление на устройстве —
+  // проблема системная (Chrome→Site→Notifications, Battery optimization,
+  // Do-Not-Disturb, канал уведомлений Chrome отключён). Если этот тест
+  // показывает, а реальные пуши нет — проблема доставки FCM→устройство
+  // (маловероятно; чаще stale-endpoint или отключенный push для сайта).
+  async function testShow() {
+    setError(null);
+    setNotice(null);
+    try {
+      if (!supported) throw new Error('Браузер не поддерживает уведомления');
+      if (permission !== 'granted') {
+        const perm = await Notification.requestPermission();
+        setPermission(perm);
+        if (perm !== 'granted') throw new Error('Разрешение не выдано');
+      }
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification('grampocket — тест', {
+        body: 'Если видишь это — уведомления SW работают на устройстве.',
+        tag: 'diag-test',
+      });
+      setNotice('Тест отправлен. Появилось уведомление в шторке?');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   const active = endpoint !== null && permission === 'granted';
 
   return (
@@ -168,6 +195,17 @@ export function NotificationsCard(props: {
               {busy ? 'Включаем…' : 'Включить уведомления'}
             </button>
           )}
+        </p>
+      )}
+      {supported && (
+        <p style={{ marginTop: 4 }}>
+          <button type="button" onClick={() => void testShow()}>
+            Показать тестовое уведомление
+          </button>
+          <br />
+          <small style={{ color: 'var(--muted)' }}>
+            Без сервера — проверяет, что SW и системные разрешения на устройстве в порядке.
+          </small>
         </p>
       )}
       {error && <p className="severity-danger">Ошибка: {error}</p>}

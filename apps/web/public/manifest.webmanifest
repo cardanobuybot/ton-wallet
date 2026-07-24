@@ -1,17 +1,21 @@
 {
-  "name": "ton-wallet (DEV)",
-  "short_name": "ton-wallet",
-  "description": "Некастодиальный кошелёк TON. DEV-сборка, только testnet.",
+  "name": "grampocket — некастодиальный TON-кошелёк",
+  "short_name": "grampocket",
+  "description": "Некастодиальный кошелёк для сети TON. Ключи хранятся только на устройстве. Testnet.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "ru",
+  "categories": ["finance", "utilities"],
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }

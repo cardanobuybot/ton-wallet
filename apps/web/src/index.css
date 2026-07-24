@@ -632,3 +632,20 @@ fieldset > p > button:first-child:hover:not(:disabled) { filter: brightness(1.1)
     transition-duration: 0.01ms !important;
   }
 }
+
+/* PWA install banner: sticky сверху под шапкой, ненавязчиво зовёт добавить
+   grampocket на главный экран. Скрывается когда PWA уже установлена. */
+.install-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: linear-gradient(135deg, rgba(124,92,255,0.10), rgba(62,139,255,0.10));
+  border: 1px solid rgba(124,92,255,0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+.install-banner small { color: var(--muted); }

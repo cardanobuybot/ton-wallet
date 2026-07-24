@@ -56,6 +56,7 @@ import { GramLogo } from './ui/GramLogo.tsx';
 import { WalletLogo } from './ui/WalletLogo.tsx';
 import { NotificationsCard } from './NotificationsCard.tsx';
 import { BottomSheet } from './ui/BottomSheet.tsx';
+import { InstallPrompt } from './ui/InstallPrompt.tsx';
 import { useToast } from './ui/Toast.tsx';
 import { IconCamera, IconLock, IconReceive, IconRefresh, IconSend } from './ui/Icons.tsx';
 import { QrScanner } from './ui/QrScanner.tsx';
@@ -173,6 +174,7 @@ export function App() {
         <WalletLogo size={36} />
         grampocket
       </h1>
+      <InstallPrompt />
       {error && <p className="severity-danger">Ошибка: {error}</p>}
 
       {route.name === 'profile' && (

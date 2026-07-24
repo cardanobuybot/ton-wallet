@@ -15,7 +15,7 @@ const NETWORK = 'testnet' as const;
 // достаточно с запасом при интервале в 20 сек.
 const HISTORY_LIMIT = 20;
 
-async function fetchTransactions(rawAddress: string): Promise<unknown> {
+export async function fetchTransactions(rawAddress: string): Promise<unknown> {
   const base = process.env.TONCENTER_BASE ?? 'https://testnet.toncenter.com/api/v2';
   const key = process.env.TONCENTER_API_KEY;
   const url =

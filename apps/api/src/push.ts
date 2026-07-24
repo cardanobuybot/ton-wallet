@@ -6,11 +6,13 @@ import webpush from 'web-push';
 import {
   getWalletAddress,
   IMPORTABLE_VERSIONS,
+  parseTransactions,
   verifyTonProof,
   type Network,
   type WalletVersion,
 } from '@ton-wallet/core';
 import { sql } from './db.ts';
+import { fetchTransactions } from './push-poller.ts';
 
 const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
@@ -106,6 +108,10 @@ export async function pushToAddress(addressRaw: string, event: PushEvent): Promi
   const rows = await s<
     { endpoint: string; p256dh: string; auth_key: string }[]
   >`SELECT endpoint, p256dh, auth_key FROM push_subscriptions WHERE address_raw = ${addressRaw}`;
+  if (rows.length === 0) {
+    console.warn('[push] pushToAddress: no active subscriptions for', addressRaw);
+    return;
+  }
   await Promise.allSettled(
     rows.map(async (r) => {
       try {
@@ -114,11 +120,25 @@ export async function pushToAddress(addressRaw: string, event: PushEvent): Promi
           JSON.stringify(event),
           { TTL: 60 * 60 * 24 },
         );
+        console.log('[push] sent', addressRaw.slice(0, 10) + '…', 'title:', event.title);
       } catch (err: unknown) {
         // 404/410 = подписка мертва, удаляем.
         const status = (err as { statusCode?: number }).statusCode;
+        const body = (err as { body?: string }).body;
         if (status === 404 || status === 410) {
           await s`DELETE FROM push_subscriptions WHERE endpoint = ${r.endpoint}`;
+          console.warn('[push] dead subscription removed', r.endpoint.slice(0, 60));
+        } else {
+          // Любые другие ошибки раньше глотались — из-за этого нельзя было
+          // отличить «пуш не пришёл, потому что не отправили» от «пуш отправили,
+          // но провайдер вернул 5xx». Теперь логируем.
+          console.error(
+            '[push] sendNotification failed:',
+            'status=', status ?? 'n/a',
+            '| endpoint:', r.endpoint.slice(0, 60),
+            '| err:', err instanceof Error ? err.message : String(err),
+            body ? '| body: ' + String(body).slice(0, 200) : '',
+          );
         }
       }
     }),
@@ -144,7 +164,44 @@ export async function registerPushRoutes(app: FastifyInstance): Promise<void> {
             ON CONFLICT (address_raw, endpoint) DO UPDATE
               SET p256dh = EXCLUDED.p256dh,
                   auth_key = EXCLUDED.auth_key`;
-    console.log('[push]', 'subscribed', addressRaw, 'endpoint:', sub.endpoint.slice(0, 60));
+    console.log('[push] subscribed', addressRaw, 'endpoint:', sub.endpoint.slice(0, 60));
+
+    // Инициализируем курсор пуллера сразу на subscribe, а не в первом
+    // тике поллера. Иначе tx, пришедшая в узком окне «subscribe → первый
+    // тик» (до 20с), попадает в maxLt-init и пуш по ней не уходит.
+    try {
+      const existing = await s<
+        { last_lt: string }[]
+      >`SELECT last_lt FROM push_cursors WHERE address_raw = ${addressRaw}`;
+      if (existing.length === 0) {
+        const raw = await fetchTransactions(addressRaw);
+        const items = parseTransactions(raw, 'testnet');
+        let maxLt = 0n;
+        for (const t of items) {
+          const lt = BigInt(t.lt);
+          if (lt > maxLt) maxLt = lt;
+        }
+        if (maxLt > 0n) {
+          await s`INSERT INTO push_cursors (address_raw, last_lt)
+                  VALUES (${addressRaw}, ${maxLt.toString()})
+                  ON CONFLICT (address_raw) DO NOTHING`;
+          console.log('[push] cursor initialized', addressRaw, 'lt:', maxLt.toString());
+        }
+      }
+    } catch (err) {
+      // Не критично — если не смогли инициализировать сейчас, первый тик
+      // поллера сделает это через ≤20с (со старой race-семантикой).
+      console.warn('[push] cursor init failed:', err instanceof Error ? err.message : err);
+    }
+
+    // Welcome-пуш: сразу подтверждаем пользователю что канал работает.
+    // Если провайдер (FCM/APNs) вернёт ошибку — увидим её в логах.
+    await pushToAddress(addressRaw, {
+      title: '🔔 Уведомления включены',
+      body: 'Будем присылать пуши о входящих и исходящих транзакциях.',
+      tag: 'welcome',
+    });
+
     return { ok: true };
   });
 
